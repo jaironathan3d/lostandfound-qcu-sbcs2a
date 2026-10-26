@@ -1,0 +1,181 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  STUDENT
+  PROFESSOR
+  STAFF
+  SECURITY_GUARD
+  ADMIN
+  SUPERADMIN
+}
+
+enum ItemStatus {
+  REPORTED
+  IN_VAULT
+  CLAIM_PENDING
+  VERIFIED
+  RETURNED
+}
+
+enum ClaimStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+model User {
+  id             String         @id @default(cuid())
+  email          String         @unique
+  passwordHash   String
+  fullName       String
+  role           UserRole
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  reportedItems  Item[]         @relation("ReporterItems")
+  claims         Claim[]
+  notifications  Notification[]
+  guardVaults    VaultEntry[]   @relation("VaultGuard")
+  handoversGiven Handover[]     @relation("HandoverGuard")
+  handoversTaken Handover[]     @relation("HandoverReceiver")
+  auditLogs      AuditLog[]
+  comments       Comment[]
+}
+
+model StudentRecord {
+  id            String   @id @default(cuid())
+  studentNumber String   @unique
+  fullName      String
+  course        String
+  classSchedule String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Category {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  items     Item[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Item {
+  id           String      @id @default(cuid())
+  title        String
+  description  String
+  hiddenDetail String
+  building     String
+  status       ItemStatus  @default(REPORTED)
+  reporterId   String
+  categoryId   String?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  reporter     User        @relation("ReporterItems", fields: [reporterId], references: [id])
+  category     Category?   @relation(fields: [categoryId], references: [id])
+  images       ItemImage[]
+  claims       Claim[]
+  thread       Thread?
+  vaultEntry   VaultEntry?
+}
+
+model ItemImage {
+  id        String   @id @default(cuid())
+  itemId     String
+  imageUrl   String
+  createdAt  DateTime @default(now())
+  item       Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
+}
+
+model Claim {
+  id                 String            @id @default(cuid())
+  itemId             String
+  claimerId          String
+  hiddenDetailAnswer String
+  status             ClaimStatus       @default(PENDING)
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  item               Item              @relation(fields: [itemId], references: [id])
+  claimer            User              @relation(fields: [claimerId], references: [id])
+  proofImages        ClaimProofImage[]
+}
+
+model ClaimProofImage {
+  id        String   @id @default(cuid())
+  claimId   String
+  imageUrl  String
+  createdAt DateTime @default(now())
+  claim     Claim    @relation(fields: [claimId], references: [id], onDelete: Cascade)
+}
+
+model Thread {
+  id        String    @id @default(cuid())
+  itemId     String    @unique
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  item       Item      @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  comments   Comment[]
+}
+
+model Comment {
+  id        String   @id @default(cuid())
+  threadId  String
+  userId    String
+  content   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  thread    Thread   @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id])
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  message   String
+  readAt    DateTime?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VaultEntry {
+  id            String    @id @default(cuid())
+  itemId         String    @unique
+  guardId        String
+  referenceCode  String    @unique
+  receivedAt     DateTime  @default(now())
+  releasedAt     DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  item           Item      @relation(fields: [itemId], references: [id])
+  guard          User      @relation("VaultGuard", fields: [guardId], references: [id])
+  handovers      Handover[]
+}
+
+model Handover {
+  id           String    @id @default(cuid())
+  vaultEntryId String
+  guardId      String
+  releasedToId String
+  referenceCode String
+  releasedAt   DateTime  @default(now())
+  createdAt    DateTime  @default(now())
+  vaultEntry   VaultEntry @relation(fields: [vaultEntryId], references: [id], onDelete: Cascade)
+  guard        User       @relation("HandoverGuard", fields: [guardId], references: [id])
+  releasedTo   User       @relation("HandoverReceiver", fields: [releasedToId], references: [id])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String
+  action    String
+  entity    String
+  entityId  String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id])
+}

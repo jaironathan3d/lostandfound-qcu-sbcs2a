@@ -1,0 +1,16 @@
+# Global fallback owners
+* @placeholder-superadmin
+
+# Backend feature ownership
+/backend/src/features/auth/ @placeholder-auth
+/backend/src/features/users/ @placeholder-users
+/backend/src/features/items/ @placeholder-items
+/backend/src/features/claims/ @placeholder-claims
+/backend/src/features/threads/ @placeholder-threads
+/backend/src/features/notifications/ @placeholder-notifications
+/backend/src/features/vault/ @placeholder-vault
+/backend/src/features/admin/ @placeholder-admin
+/backend/src/features/studentRecords/ @placeholder-student-records
+
+# Frontend ownership
+/frontend/src/ @placeholder-frontend
