@@ -1,15 +1,14 @@
 import { createBrowserRouter } from 'react-router-dom';
 import { AppLayout } from '../components/AppLayout';
 import { RoleGuard } from '../guards/RoleGuard';
+import { LoginPage, RegisterPage } from '../pages/AuthPages';
+import { HowItWorksPage, SafetyHelpPage } from '../pages/InformationPages';
 import {
   AdminDashboardPage,
   BrowseItemsPage,
   GuardDashboardPage,
-  HomePage,
   ItemDetailPage,
-  LoginPage,
   MyClaimsPage,
-  RegisterPage,
   ReportItemPage,
 } from '../pages/placeholders';
 
@@ -18,10 +17,12 @@ export const appRouter = createBrowserRouter([
     path: '/',
     element: <AppLayout />,
     children: [
-      { index: true, element: <HomePage /> },
+      { index: true, element: <BrowseItemsPage /> },
       { path: 'login', element: <LoginPage /> },
       { path: 'register', element: <RegisterPage /> },
       { path: 'items', element: <BrowseItemsPage /> },
+      { path: 'how-it-works', element: <HowItWorksPage /> },
+      { path: 'safety-help', element: <SafetyHelpPage /> },
       { path: 'items/:itemId', element: <ItemDetailPage /> },
       {
         path: 'report-item',
