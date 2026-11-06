@@ -33,7 +33,8 @@ enum ClaimStatus {
 model User {
   id             String         @id @default(cuid())
   email          String         @unique
-  passwordHash   String
+  passwordHash   String?
+  googleId       String?        @unique
   fullName       String
   role           UserRole
   createdAt      DateTime       @default(now())
@@ -115,7 +116,7 @@ model ClaimProofImage {
 }
 
 model Thread {
-  id        String    @id @default(cuid())
+  id         String    @id @default(cuid())
   itemId     String    @unique
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
