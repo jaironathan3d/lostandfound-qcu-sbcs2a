@@ -83,7 +83,7 @@ authRouter.get('/me', requireAuth, async (req: AuthRequest, res) => {
   res.json(user);
 });
 
-// ---------- GOOGLE SIGN-IN ----------
+// GOOGLE SIGN-IN 
 authRouter.post('/google', async (req, res) => {
   const { idToken } = req.body;
 

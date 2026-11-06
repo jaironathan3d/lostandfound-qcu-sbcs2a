@@ -93,7 +93,7 @@ claimsRouter.patch('/:id/review', requireAuth, requireRole(...REVIEWERS), async 
     return;
   }
 
-  const claim = await prisma.claim.findUnique({ where: { id: claimId } });
+  const claim = await prisma.claim.findUnique({ where: { id: String(req.params.id) } });
   if (!claim) {
     res.status(404).json({ error: 'Claim not found' });
     return;
