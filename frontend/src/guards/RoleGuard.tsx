@@ -1,26 +1,25 @@
 import type { ReactNode } from 'react';
-import { Navigate } from 'react-router-dom';
-
-export type AppRole = 'student' | 'professor' | 'staff' | 'security_guard' | 'admin' | 'superadmin';
+import { Navigate, useLocation } from 'react-router-dom';
+import { useAuth, type AppRole } from '../lib/AuthContext';
 
 type RoleGuardProps = {
   allowedRoles: AppRole[];
   children: ReactNode;
 };
 
-const getCurrentRole = (): AppRole | null => {
-  // TODO: Replace with auth state lookup.
-  return null;
-};
+export const RoleGuard = ({ allowedRoles, children }: RoleGuardProps) => {
+  const { user, isLoading } = useAuth();
+  const location = useLocation();
 
-export const RoleGuard = ({ allowedRoles, children }: RoleGuardProps)=> {
-  const currentRole = getCurrentRole();
-
-  if (!currentRole) {
-    return <Navigate to="/login" replace />;
+  if (isLoading) {
+    return <main aria-label="Checking your sign-in">Loading…</main>;
   }
 
-  if (!allowedRoles.includes(currentRole)) {
+  if (!user) {
+    return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+  }
+
+  if (!allowedRoles.includes(user.role)) {
     return <Navigate to="/" replace />;
   }
 

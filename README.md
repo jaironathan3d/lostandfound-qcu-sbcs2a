@@ -37,3 +37,22 @@ Starter monorepo scaffold for the Lost and Found thesis project.
    npm run dev:backend
    npm run dev:frontend
    ```
+
+## Authentication setup
+
+- Copy `backend/.env.example` to `backend/.env` and set `JWT_SECRET` to a random secret of at least 32 characters. Generate one in PowerShell with `node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"`.
+- Copy `frontend/.env.example` to `frontend/.env`.
+- Run the authentication migration with `npm run prisma:migrate --workspace backend`.
+- For Google sign-in, create or select a project in Google Cloud Console, configure the OAuth consent screen (including test users if the app is in testing), and create an OAuth client ID with application type **Web application**. Add `http://localhost:5173` as an authorized JavaScript origin. This implementation uses the Google Identity Services button and ID-token flow, so it does not require the Gmail API, a Google API key, or an authorized redirect URI. Set the client ID as `GOOGLE_CLIENT_ID` in `backend/.env` and `VITE_GOOGLE_CLIENT_ID` in `frontend/.env`. Keep the client ID public; never put a client secret in frontend code. Restart both development servers after changing environment files.
+- New email/password and Google accounts are assigned the student role. Elevated roles must be assigned by an administrator.
+
+The backend exposes `POST /api/auth/register` (name, email, password), `POST /api/auth/login` (email, password), `POST /api/auth/google` (Google ID token credential), and `GET /api/auth/me` (a session token in the `Authorization: Bearer ...` header). The frontend receives the Google credential from Google Identity Services and sends it to the backend. The backend verifies the credential against the configured client ID before creating or signing in the account and issuing the app's own session token.
+
+Authentication is implemented on the backend, but the lost-and-found item API is still a placeholder; the browse screen currently displays sample listings. Reporting and searching real records will need item endpoints and database-backed frontend requests.
+
+### Google sign-in request flow
+
+1. The browser loads Google's Identity Services script and renders Google's sign-in button using `VITE_GOOGLE_CLIENT_ID`.
+2. After consent, Google returns a signed ID token to the frontend. The frontend posts that credential to `POST /api/auth/google`.
+3. The backend validates the token signature, audience, and verified email using `GOOGLE_CLIENT_ID`; the frontend does not decide which Google accounts are trusted.
+4. The backend links or creates the account, then returns the app's own JWT. The app uses that token for its authenticated session; the Google token is not used as the app session.
