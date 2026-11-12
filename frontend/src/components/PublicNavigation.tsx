@@ -5,6 +5,7 @@ import './PublicNavigation.css';
 export const PublicHeader = () => {
   const { pathname } = useLocation();
   const { user, signOut } = useAuth();
+  const isItemsPage = pathname === '/' || pathname === '/items' || pathname.startsWith('/items/');
 
   return (
     <header className="public-header">
@@ -14,11 +15,11 @@ export const PublicHeader = () => {
       </Link>
 
       <nav className="public-nav" aria-label="Main navigation">
-        <Link className={pathname === '/' || pathname === '/items' ? 'public-nav__active' : ''} to="/">
+        <Link className={isItemsPage ? 'public-nav__active' : ''} to="/">
           Lost &amp; Found
         </Link>
-        <Link className={pathname === '/how-it-works' ? 'public-nav__active' : ''} to="/how-it-works">
-          How it works
+        <Link className={pathname === '/threads' ? 'public-nav__active' : ''} to="/threads">
+          Threads
         </Link>
         <Link className={pathname === '/safety-help' ? 'public-nav__active' : ''} to="/safety-help">
           Safety &amp; help
@@ -29,6 +30,7 @@ export const PublicHeader = () => {
         {user ? (
           <>
             <span className="public-user" title={user.fullName}>{user.fullName}</span>
+            <Link className="public-login" to="/my-claims">My claims</Link>
             <button type="button" className="public-signup public-signup--logout" onClick={signOut}>
               Log out
             </button>
@@ -52,8 +54,9 @@ export const PublicFooter = () => (
     </Link>
     <span>A campus community that looks out for each other.</span>
     <div className="public-footer__links">
-      <Link to="/how-it-works">How it works</Link>
+      <Link to="/threads">Threads</Link>
       <Link to="/safety-help">Safety &amp; help</Link>
+      <Link to="/report-item">Report an item</Link>
     </div>
   </footer>
 );

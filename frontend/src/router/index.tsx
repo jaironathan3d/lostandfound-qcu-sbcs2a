@@ -1,15 +1,13 @@
-import { createBrowserRouter } from 'react-router-dom';
+import { createBrowserRouter, Navigate } from 'react-router-dom';
 import { AppLayout } from '../components/AppLayout';
 import { RoleGuard } from '../guards/RoleGuard';
 import { LoginPage, RegisterPage } from '../pages/AuthPages';
-import { HowItWorksPage, SafetyHelpPage } from '../pages/InformationPages';
+import { SafetyHelpPage } from '../pages/InformationPages';
+import { BrowseItemsPage } from '../pages/BrowseItemsPage';
+import { MyClaimsPage, ReportItemPage, ThreadsPage } from '../pages/CommunityPages';
 import {
   AdminDashboardPage,
-  BrowseItemsPage,
   GuardDashboardPage,
-  ItemDetailPage,
-  MyClaimsPage,
-  ReportItemPage,
 } from '../pages/placeholders';
 
 export const appRouter = createBrowserRouter([
@@ -21,9 +19,10 @@ export const appRouter = createBrowserRouter([
       { path: 'login', element: <LoginPage /> },
       { path: 'register', element: <RegisterPage /> },
       { path: 'items', element: <BrowseItemsPage /> },
-      { path: 'how-it-works', element: <HowItWorksPage /> },
+      { path: 'items/:itemId', element: <BrowseItemsPage /> },
+      { path: 'threads', element: <ThreadsPage /> },
+      { path: 'how-it-works', element: <Navigate to="/safety-help" replace /> },
       { path: 'safety-help', element: <SafetyHelpPage /> },
-      { path: 'items/:itemId', element: <ItemDetailPage /> },
       {
         path: 'report-item',
         element: (

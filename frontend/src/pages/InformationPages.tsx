@@ -52,8 +52,32 @@ export const SafetyHelpPage = () => (
       <header className="info-intro">
         <p className="info-eyebrow">LOOK OUT FOR ONE ANOTHER</p>
         <h1>Safety &amp; help</h1>
-        <p>A few good habits can help protect your belongings and make every reunion safer.</p>
+        <p>Simple steps for reporting, verifying ownership, and bringing belongings back safely.</p>
       </header>
+
+      <section className="info-steps" aria-label="How to use lost and found">
+        <article className="info-step">
+          <span className="info-step__number">01</span>
+          <span className="info-step__icon" aria-hidden="true">⌕</span>
+          <h2>Search the listings</h2>
+          <p>Browse recent campus reports by item, category, or location.</p>
+          <Link to="/">Browse items <span aria-hidden="true">→</span></Link>
+        </article>
+        <article className="info-step">
+          <span className="info-step__number">02</span>
+          <span className="info-step__icon" aria-hidden="true">✎</span>
+          <h2>Make a report</h2>
+          <p>Describe what you lost or found. Keep at least one identifying detail private.</p>
+          <Link to="/report-item">Report an item <span aria-hidden="true">→</span></Link>
+        </article>
+        <article className="info-step">
+          <span className="info-step__number">03</span>
+          <span className="info-step__icon" aria-hidden="true">✓</span>
+          <h2>Verify and reunite</h2>
+          <p>Confirm ownership with more than one detail, then arrange a safe handover.</p>
+          <Link to="/threads">Join a thread <span aria-hidden="true">→</span></Link>
+        </article>
+      </section>
 
       <section className="safety-panel" aria-label="Safety guidelines">
         <article className="safety-tip">

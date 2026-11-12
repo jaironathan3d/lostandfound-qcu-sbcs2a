@@ -4,6 +4,7 @@ import { useAuth } from '../lib/AuthContext';
 import './AuthPages.css';
 
 const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+const demoAuthEnabled = import.meta.env.DEV && import.meta.env.VITE_DEMO_AUTH === 'true';
 
 declare global {
   interface Window {
@@ -120,6 +121,7 @@ const AuthPage = ({ mode }: AuthPageProps) => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
 
   if (isLoading) {
     return <main className="auth-loading" aria-label="Checking your sign-in">Loading…</main>;
@@ -141,6 +143,10 @@ const AuthPage = ({ mode }: AuthPageProps) => {
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (isRegister && !demoAuthEnabled && !acceptedTerms) {
+      setError('Please agree to the terms and privacy policy to create an account.');
+      return;
+    }
     void completeSignIn(() =>
       isRegister
         ? signUp(fullName, email, password)
@@ -153,38 +159,33 @@ const AuthPage = ({ mode }: AuthPageProps) => {
 
   return (
     <main className="auth-page">
-      <section className="auth-card" aria-labelledby="auth-title">
+      <section className="auth-story" aria-label="About QCU Lost and Found">
         <Link className="auth-brand" to="/" aria-label="QCU Lost and Found home">
           <img src="/qcu_logo.png" alt="" />
           <span>QCU <small>LOST &amp; FOUND</small></span>
         </Link>
-
-        <div className="auth-card__intro">
-          <p className="auth-eyebrow">YOUR QCU COMMUNITY</p>
-          <h1 id="auth-title">{isRegister ? 'Create your account' : 'Welcome back'}</h1>
-          <p>{isRegister ? 'Join the community helping lost things find their way home.' : 'Log in to continue to QCU Lost & Found.'}</p>
+        <div className="auth-story__copy">
+          <p className="auth-eyebrow">A LITTLE HELP. A HAPPY REUNION.</p>
+          <h1>Good things find their way back.</h1>
+          <p>A familiar face. A helpful student. A place to bring lost belongings and their people back together.</p>
         </div>
-
-        <div className="auth-tabs" role="tablist" aria-label="Account access">
-          <Link
-            role="tab"
-            aria-selected={!isRegister}
-            className={!isRegister ? 'auth-tab auth-tab--active' : 'auth-tab'}
-            to="/login"
-          >
-            Log in
-          </Link>
-          <Link
-            role="tab"
-            aria-selected={isRegister}
-            className={isRegister ? 'auth-tab auth-tab--active' : 'auth-tab'}
-            to="/register"
-          >
-            Sign up
-          </Link>
+        <div className="auth-story__image">
+          <img src="/green_image.png" alt="A water bottle and personal belongings waiting to be reunited with their owner" />
         </div>
-
-        <form className="auth-form" onSubmit={handleSubmit}>
+        <p className="auth-story__made"><span aria-hidden="true">♡</span> Made for QCU (CCS). Free for everyone.</p>
+      </section>
+      <section className="auth-main">
+        <Link className="auth-browse-link" to="/items">Browse lost &amp; found ↗</Link>
+        <div className="auth-card" aria-labelledby="auth-title">
+          <div className="auth-card__intro">
+            <p className="auth-eyebrow">{isRegister ? 'A GOOD PLACE TO START' : 'YOUR CAMPUS, CONNECTED'}</p>
+            <h2 id="auth-title">{isRegister ? 'A little closer to home.' : 'Welcome back.'}</h2>
+            <p>{isRegister ? 'Join your neighbors in bringing belongings back. Creating an account is free and takes a moment.' : 'Log in to keep looking, lend a hand, or pick up where you left off.'}</p>
+          </div>
+          {demoAuthEnabled && <p className="auth-demo-notice" role="note">Local demo mode: use any username/email and password. Demo data stays in this browser and is not secure.</p>}
+          <GoogleSignIn onCredential={handleGoogleCredential} onError={setError} disabled={isSubmitting} />
+          <div className="auth-divider"><span>or continue with email</span></div>
+          <form className="auth-form" onSubmit={handleSubmit}>
           {isRegister && (
             <label>
               Full name
@@ -200,14 +201,15 @@ const AuthPage = ({ mode }: AuthPageProps) => {
             </label>
           )}
           <label>
-            Email address
+            {demoAuthEnabled ? 'Email address or username' : 'Email address'}
             <input
-              type="email"
+            type={demoAuthEnabled ? 'text' : 'email'}
               autoComplete="email"
               required
               value={email}
               onChange={(event) => setEmail(event.target.value)}
-              placeholder="you@example.com"
+            placeholder={demoAuthEnabled ? 'you@example.com or any username' : 'you@example.com'}
+            maxLength={254}
             />
           </label>
           <label>
@@ -216,33 +218,24 @@ const AuthPage = ({ mode }: AuthPageProps) => {
               type="password"
               autoComplete={isRegister ? 'new-password' : 'current-password'}
               required
-              minLength={isRegister ? 8 : undefined}
+              minLength={isRegister && !demoAuthEnabled ? 8 : undefined}
               maxLength={72}
               value={password}
               onChange={(event) => setPassword(event.target.value)}
-              placeholder={isRegister ? 'At least 8 characters' : 'Your password'}
+            placeholder={isRegister && !demoAuthEnabled ? 'At least 8 characters' : 'Your password'}
             />
           </label>
+          {isRegister && !demoAuthEnabled && <label className="auth-terms"><input type="checkbox" required checked={acceptedTerms} onChange={(event) => setAcceptedTerms(event.target.checked)} /><span>I agree to the <Link to="/safety-help">Terms of service</Link> and <Link to="/safety-help">Privacy policy</Link>.</span></label>}
+          {!isRegister && <div className="auth-remember"><label><input type="checkbox" /> Remember me</label><Link to="/safety-help">Need help?</Link></div>}
           {error && <p className="auth-error" role="alert">{error}</p>}
           <button className="auth-submit" type="submit" disabled={isSubmitting}>
-            {isSubmitting ? 'Please wait…' : isRegister ? 'Create account' : 'Log in'}
+          {isSubmitting ? 'Please wait…' : isRegister ? '→　Create account' : '→　Log in'}
           </button>
-        </form>
-
-        <div className="auth-divider"><span>or continue with</span></div>
-        <GoogleSignIn
-          onCredential={handleGoogleCredential}
-          onError={setError}
-          disabled={isSubmitting}
-        />
-        {!googleClientId && (
-          <p className="auth-google-help">
-            Add your Google OAuth client ID to <code>frontend/.env</code> to enable this option.
-          </p>
-        )}
-        <p className="auth-privacy">
-          By continuing, you agree to use this community safely and respectfully.
-        </p>
+          </form>
+          <p className="auth-switch">{isRegister ? <>Already part of the community? <Link to="/login">Log in</Link></> : <>New to Belong? <Link to="/register">Create an account</Link></>}</p>
+          <p className="auth-privacy">♧　Your details stay safe. Your kindness goes further.</p>
+        </div>
+        <footer className="auth-main__footer"><span>© 2026 QCU</span><Link to="/safety-help">Need help?</Link><Link to="/safety-help">Privacy</Link></footer>
       </section>
     </main>
   );

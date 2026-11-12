@@ -4,7 +4,7 @@ Starter monorepo scaffold for the Lost and Found thesis project.
 
 ## Project structure
 
-- `frontend` - React + TypeScript + Vite app (placeholder pages)
+- `frontend` - React + TypeScript + Vite app
 - `backend` - Node.js + TypeScript + Express + Prisma app
 - `docs` - architecture/API/testing templates
 
@@ -48,7 +48,17 @@ Starter monorepo scaffold for the Lost and Found thesis project.
 
 The backend exposes `POST /api/auth/register` (name, email, password), `POST /api/auth/login` (email, password), `POST /api/auth/google` (Google ID token credential), and `GET /api/auth/me` (a session token in the `Authorization: Bearer ...` header). The frontend receives the Google credential from Google Identity Services and sends it to the backend. The backend verifies the credential against the configured client ID before creating or signing in the account and issuing the app's own session token.
 
-Authentication is implemented on the backend, but the lost-and-found item API is still a placeholder; the browse screen currently displays sample listings. Reporting and searching real records will need item endpoints and database-backed frontend requests.
+Authentication is implemented on the backend. The lost-and-found API is still a placeholder; this front-end demo uses sample listings and browser-local report, thread, saved-item, message, and pending-claim data. Reporting and searching real records will need item endpoints and database-backed frontend requests.
+
+### UI demo and remaining implementation
+
+The login and registration screens can be tested without backend credentials by running the Vite development server; `frontend/.env.development` enables `VITE_DEMO_AUTH=true` for local development. This mode is also guarded by Vite's development flag, creates only a local browser session, and accepts any non-empty username/email and password. It is not authentication: it does not create backend accounts or authorize server requests. Production builds never enable this mode, even if the variable is set. Do not use it with real user data.
+
+This is a front-end demonstration, not a complete or secure lost-and-found system. Lost/found reports, community threads, saved listings, messages, and pending claim records are stored in browser `localStorage`; they are not sent to the backend. Clear the browser's site data to reset the demo.
+
+The administrator and campus-security pages are placeholders. Real administrator workflows still need to be implemented, including report and claim review, comparison with private item details, dispute handling, custody tracking, audit logs, and approval and confirmation of physical handovers. The backend item, messaging, and claim APIs and database-backed frontend requests also remain unfinished.
+
+**Messaging privacy is not implemented.** Public thread content and replies are visible to visitors, and the item-detail message form only saves a local demo record; there is no private conversation or administrator mediation. Before using real data, implement authenticated, access-controlled private messaging between the claimant and authorized administrators (and, where appropriate, the item reporter), prevent private contact and verification details from appearing in public threads/listings, and add server-side authorization, retention controls, and auditability. Never treat this browser-only demo as a way to disclose personal or ownership-verification information.
 
 ### Google sign-in request flow
 
