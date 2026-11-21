@@ -4,7 +4,6 @@ import { useAuth } from '../lib/AuthContext';
 import './AuthPages.css';
 
 const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
-const demoAuthEnabled = import.meta.env.DEV && import.meta.env.VITE_DEMO_AUTH === 'true';
 
 declare global {
   interface Window {
@@ -143,7 +142,7 @@ const AuthPage = ({ mode }: AuthPageProps) => {
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (isRegister && !demoAuthEnabled && !acceptedTerms) {
+    if (isRegister && !acceptedTerms) {
       setError('Please agree to the terms and privacy policy to create an account.');
       return;
     }
@@ -182,7 +181,6 @@ const AuthPage = ({ mode }: AuthPageProps) => {
             <h2 id="auth-title">{isRegister ? 'A little closer to home.' : 'Welcome back.'}</h2>
             <p>{isRegister ? 'Join your neighbors in bringing belongings back. Creating an account is free and takes a moment.' : 'Log in to keep looking, lend a hand, or pick up where you left off.'}</p>
           </div>
-          {demoAuthEnabled && <p className="auth-demo-notice" role="note">Local demo mode: use any username/email and password. Demo data stays in this browser and is not secure.</p>}
           <GoogleSignIn onCredential={handleGoogleCredential} onError={setError} disabled={isSubmitting} />
           <div className="auth-divider"><span>or continue with email</span></div>
           <form className="auth-form" onSubmit={handleSubmit}>
@@ -201,15 +199,15 @@ const AuthPage = ({ mode }: AuthPageProps) => {
             </label>
           )}
           <label>
-            {demoAuthEnabled ? 'Email address or username' : 'Email address'}
+            Email address
             <input
-            type={demoAuthEnabled ? 'text' : 'email'}
+              type="email"
               autoComplete="email"
               required
               value={email}
               onChange={(event) => setEmail(event.target.value)}
-            placeholder={demoAuthEnabled ? 'you@example.com or any username' : 'you@example.com'}
-            maxLength={254}
+              placeholder="you@example.com"
+              maxLength={254}
             />
           </label>
           <label>
@@ -218,14 +216,14 @@ const AuthPage = ({ mode }: AuthPageProps) => {
               type="password"
               autoComplete={isRegister ? 'new-password' : 'current-password'}
               required
-              minLength={isRegister && !demoAuthEnabled ? 8 : undefined}
+              minLength={isRegister ? 8 : undefined}
               maxLength={72}
               value={password}
               onChange={(event) => setPassword(event.target.value)}
-            placeholder={isRegister && !demoAuthEnabled ? 'At least 8 characters' : 'Your password'}
+              placeholder={isRegister ? 'At least 8 characters' : 'Your password'}
             />
           </label>
-          {isRegister && !demoAuthEnabled && <label className="auth-terms"><input type="checkbox" required checked={acceptedTerms} onChange={(event) => setAcceptedTerms(event.target.checked)} /><span>I agree to the <Link to="/safety-help">Terms of service</Link> and <Link to="/safety-help">Privacy policy</Link>.</span></label>}
+          {isRegister && <label className="auth-terms"><input type="checkbox" required checked={acceptedTerms} onChange={(event) => setAcceptedTerms(event.target.checked)} /><span>I agree to the <Link to="/safety-help">Terms of service</Link> and <Link to="/safety-help">Privacy policy</Link>.</span></label>}
           {!isRegister && <div className="auth-remember"><label><input type="checkbox" /> Remember me</label><Link to="/safety-help">Need help?</Link></div>}
           {error && <p className="auth-error" role="alert">{error}</p>}
           <button className="auth-submit" type="submit" disabled={isSubmitting}>

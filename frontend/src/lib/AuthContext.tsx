@@ -25,9 +25,6 @@ type AuthContextValue = {
 };
 
 const storageKey = 'qcu-lost-and-found-token';
-const demoUserStorageKey = 'qcu-local-demo-user';
-const demoToken = 'qcu-local-demo-session';
-const demoAuthEnabled = import.meta.env.DEV && import.meta.env.VITE_DEMO_AUTH === 'true';
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -113,30 +110,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       return;
     }
 
-    if (demoAuthEnabled && token === demoToken) {
-      const savedUser: unknown = JSON.parse(window.localStorage.getItem(demoUserStorageKey) ?? 'null');
-      if (
-        isRecord(savedUser) &&
-        typeof savedUser.id === 'string' &&
-        typeof savedUser.email === 'string' &&
-        typeof savedUser.fullName === 'string' &&
-        savedUser.role === 'student'
-      ) {
-        setUser({
-          id: savedUser.id,
-          email: savedUser.email,
-          fullName: savedUser.fullName,
-          role: 'student',
-        });
-        setIsLoading(false);
-        return;
-      }
-      window.localStorage.removeItem(storageKey);
-      window.localStorage.removeItem(demoUserStorageKey);
-      setIsLoading(false);
-      return;
-    }
-
     let active = true;
     authGet('me', token)
       .then(async (response) => {
@@ -165,38 +138,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     user,
     isLoading,
     signIn: async (email, password) => {
-      if (demoAuthEnabled) {
-        if (!email.trim() || !password) throw new Error('Enter a username and password to continue.');
-        const label = email.trim().split('@')[0].replace(/[._-]+/g, ' ');
-        const fullName = label.replace(/\b\w/g, (letter) => letter.toUpperCase()) || 'Demo user';
-        const demoUser: AuthUser = {
-          id: crypto.randomUUID(),
-          email: email.trim(),
-          fullName,
-          role: 'student',
-        };
-        window.localStorage.setItem(storageKey, demoToken);
-        window.localStorage.setItem(demoUserStorageKey, JSON.stringify(demoUser));
-        setUser(demoUser);
-        return;
-      }
       const session = await postAuth('login', { email, password });
       setUser(session.user);
     },
     signUp: async (fullName, email, password) => {
-      if (demoAuthEnabled) {
-        if (!fullName.trim() || !email.trim() || !password) throw new Error('Complete all fields to continue.');
-        const demoUser: AuthUser = {
-          id: crypto.randomUUID(),
-          email: email.trim(),
-          fullName: fullName.trim(),
-          role: 'student',
-        };
-        window.localStorage.setItem(storageKey, demoToken);
-        window.localStorage.setItem(demoUserStorageKey, JSON.stringify(demoUser));
-        setUser(demoUser);
-        return;
-      }
       const session = await postAuth('register', { fullName, email, password });
       setUser(session.user);
     },
@@ -206,7 +151,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     },
     signOut: () => {
       window.localStorage.removeItem(storageKey);
-      window.localStorage.removeItem(demoUserStorageKey);
       setUser(null);
     },
   }), [isLoading, user]);

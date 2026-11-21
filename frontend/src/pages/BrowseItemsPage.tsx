@@ -2,32 +2,71 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { PublicFooter, PublicHeader } from '../components/PublicNavigation';
 import { useAuth } from '../lib/AuthContext';
-import {
-  getClaims,
-  getItems,
-  getMessages,
-  getSavedItems,
-  saveClaims,
-  saveMessages,
-  saveSavedItems,
-  type DemoClaim,
-  type DemoItem,
-  type DemoMessage,
-} from './demoData';
+import { apiRequest } from '../lib/apiClient';
+import { readImageAsDataUrl } from '../lib/readImageAsDataUrl';
+import { getSavedItems, saveSavedItems, type ItemListing } from '../lib/itemData';
 import './BrowseItemsPage.css';
 
 const categories = ['All categories', 'Bags & wallets', 'Keys', 'Electronics', 'Everyday items', 'Accessories', 'Other'];
+
+type ApiItem = {
+  id: string;
+  title: string;
+  description: string;
+  category: string;
+  type: 'Lost' | 'Found';
+  location: string;
+  occurredAt: string;
+  createdAt: string;
+  imageUrl?: string;
+  lostItemStatus?: 'OPEN' | 'MATCH_PENDING' | 'FOUND' | 'RETURNED';
+};
+
+const toDisplayItem = (item: ApiItem): ItemListing => ({
+  id: item.id,
+  title: item.title,
+  description: item.description,
+  category: item.category,
+  status: item.type,
+  location: item.location,
+  date: new Date(item.occurredAt).toLocaleDateString(),
+  daysAgo: Math.max(0, Math.floor((Date.now() - new Date(item.createdAt).getTime()) / 86_400_000)),
+  icon: item.category === 'Keys' ? '🔑' : item.category === 'Electronics' ? '🎧' : item.category === 'Accessories' ? '👓' : item.category === 'Bags & wallets' ? '🎒' : '📦',
+  color: item.type === 'Found' ? 'mint' : 'sage',
+  reporter: 'QCU community member',
+  imageUrl: item.imageUrl,
+  lostItemStatus: item.lostItemStatus,
+});
 
 export const BrowseItemsPage = () => {
   const { itemId } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const [items] = useState(getItems);
+  const [items, setItems] = useState<ItemListing[]>([]);
+  const [isLoadingItems, setIsLoadingItems] = useState(true);
+  const [itemsError, setItemsError] = useState('');
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState<'All items' | 'Lost' | 'Found'>('All items');
   const [category, setCategory] = useState('All categories');
   const [sortOrder, setSortOrder] = useState<'newest' | 'oldest'>('newest');
   const selectedItem = items.find((item) => item.id === itemId);
+
+  useEffect(() => {
+    let active = true;
+    apiRequest<ApiItem[]>('/items')
+      .then((records) => {
+        if (active) setItems(records.map(toDisplayItem));
+      })
+      .catch((reason: unknown) => {
+        if (active) setItemsError(reason instanceof Error ? reason.message : 'Items could not be loaded.');
+      })
+      .finally(() => {
+        if (active) setIsLoadingItems(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const filteredItems = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -120,7 +159,11 @@ export const BrowseItemsPage = () => {
             </label>
           </div>
 
-          {filteredItems.length ? (
+          {isLoadingItems ? (
+            <p className="browse-empty" role="status">Loading community items…</p>
+          ) : itemsError ? (
+            <div className="browse-empty" role="alert"><h3>Items could not be loaded</h3><p>{itemsError}</p><button type="button" onClick={() => window.location.reload()}>Try again</button></div>
+          ) : filteredItems.length ? (
             <div className="browse-grid">
               {filteredItems.map((item) => (
                 <Link className="item-card" to={`/items/${item.id}`} key={item.id}>
@@ -160,20 +203,29 @@ export const BrowseItemsPage = () => {
       <PublicFooter />
       {itemId && (
         selectedItem
-          ? <ItemDetails item={selectedItem} userName={user?.fullName ?? 'Guest'} isAuthenticated={Boolean(user)} onClose={() => navigate('/items')} />
-          : <div className="item-modal-backdrop" role="presentation" onMouseDown={() => navigate('/items')}><section className="item-modal item-modal--not-found" role="dialog" aria-modal="true" aria-labelledby="item-not-found"><button type="button" className="item-modal__close" onClick={() => navigate('/items')} aria-label="Close item details">×</button><h2 id="item-not-found">Item not found</h2><p>This demo listing may have been removed.</p></section></div>
+          ? <ItemDetails item={selectedItem} foundItems={items.filter((entry) => entry.status === 'Found')} userName={user?.fullName ?? 'Guest'} isAuthenticated={Boolean(user)} onClose={() => navigate('/items')} />
+          : !isLoadingItems && !itemsError ? <div className="item-modal-backdrop" role="presentation" onMouseDown={() => navigate('/items')}><section className="item-modal item-modal--not-found" role="dialog" aria-modal="true" aria-labelledby="item-not-found"><button type="button" className="item-modal__close" onClick={() => navigate('/items')} aria-label="Close item details">×</button><h2 id="item-not-found">Item not found</h2><p>This listing may have been removed or returned.</p></section></div>
+            : null
       )}
     </div>
   );
 };
 
-const ItemDetails = ({ item, userName, isAuthenticated, onClose }: { item: DemoItem; userName: string; isAuthenticated: boolean; onClose: () => void }) => {
+const ItemDetails = ({ item, foundItems, userName, isAuthenticated, onClose }: { item: ItemListing; foundItems: ItemListing[]; userName: string; isAuthenticated: boolean; onClose: () => void }) => {
+  const navigate = useNavigate();
   const [saved, setSaved] = useState(() => getSavedItems().includes(item.id));
   const [claimOpen, setClaimOpen] = useState(false);
   const [claimAnswer, setClaimAnswer] = useState('');
   const [claimEvidence, setClaimEvidence] = useState('');
-  const [evidenceFileName, setEvidenceFileName] = useState('');
+  const [proofImage, setProofImage] = useState<File | null>(null);
+  const [matchOpen, setMatchOpen] = useState(false);
+  const [matchDetails, setMatchDetails] = useState('');
+  const [matchedFoundItemId, setMatchedFoundItemId] = useState('');
   const [feedback, setFeedback] = useState('');
+  const [isSubmittingClaim, setIsSubmittingClaim] = useState(false);
+  const [isSubmittingMatch, setIsSubmittingMatch] = useState(false);
+  const [messageDraft, setMessageDraft] = useState('');
+  const [isSendingMessage, setIsSendingMessage] = useState(false);
 
   const toggleSaved = () => {
     const current = getSavedItems();
@@ -182,41 +234,92 @@ const ItemDetails = ({ item, userName, isAuthenticated, onClose }: { item: DemoI
     setSaved(!saved);
   };
 
-  const submitClaim = (event: FormEvent<HTMLFormElement>) => {
+  const submitClaim = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const claim: DemoClaim = {
-      id: crypto.randomUUID(),
-      itemId: item.id,
-      itemTitle: item.title,
-      submittedAt: new Date().toLocaleDateString(),
-      status: 'Pending',
-      ownershipDetails: claimAnswer.trim(),
-      lastSeen: claimEvidence.trim(),
-      evidenceFileName: evidenceFileName || undefined,
-    };
-    saveClaims([...getClaims(), claim]);
-    setClaimOpen(false);
-    setClaimAnswer('');
-    setClaimEvidence('');
-    setEvidenceFileName('');
-    setFeedback('Your demo claim was saved as Pending. An administrator must review it before any handover.');
+    setFeedback('');
+    setIsSubmittingClaim(true);
+    try {
+      const proofImageDataUrl = proofImage ? await readImageAsDataUrl(proofImage) : undefined;
+      await apiRequest('/claims', {
+        method: 'POST',
+        body: JSON.stringify({
+          itemId: item.id,
+          hiddenDetailAnswer: claimAnswer.trim(),
+          lastSeen: claimEvidence.trim(),
+          proofImageDataUrl,
+        }),
+      });
+      setClaimOpen(false);
+      setClaimAnswer('');
+      setClaimEvidence('');
+      setProofImage(null);
+      setFeedback('Your claim was submitted for administrator review.');
+    } catch (reason) {
+      setFeedback(reason instanceof Error ? reason.message : 'The claim could not be submitted.');
+    } finally {
+      setIsSubmittingClaim(false);
+    }
   };
 
-  const sendMessage = (event: FormEvent<HTMLFormElement>) => {
+  const selectProofImage = (file?: File) => {
+    setFeedback('');
+    if (!file) {
+      setProofImage(null);
+      return;
+    }
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      setProofImage(null);
+      setFeedback('Choose a JPG, PNG, or WebP image for your evidence.');
+      return;
+    }
+    if (file.size > 1024 * 1024) {
+      setProofImage(null);
+      setFeedback('Choose an evidence image smaller than 1 MB.');
+      return;
+    }
+    setProofImage(file);
+  };
+
+  const submitMatchSuggestion = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const formData = new FormData(event.currentTarget);
-    const content = formData.get('message');
-    if (typeof content !== 'string' || !content.trim()) return;
-    const message: DemoMessage = {
-      id: crypto.randomUUID(),
-      itemId: item.id,
-      recipient: item.reporter ?? 'the reporter',
-      content: content.trim(),
-      sentAt: new Date().toISOString(),
-    };
-    saveMessages([...getMessages(), message]);
-    setFeedback('Your message was saved for this demo session.');
-    event.currentTarget.reset();
+    setFeedback('');
+    setIsSubmittingMatch(true);
+    try {
+      await apiRequest(`/items/${item.id}/matches`, {
+        method: 'POST',
+        body: JSON.stringify({
+          note: matchDetails.trim(),
+          foundItemId: matchedFoundItemId || undefined,
+        }),
+      });
+      setMatchOpen(false);
+      setMatchDetails('');
+      setMatchedFoundItemId('');
+      setFeedback('Your found-item match was sent to an administrator for review.');
+    } catch (reason) {
+      setFeedback(reason instanceof Error ? reason.message : 'The match suggestion could not be submitted.');
+    } finally {
+      setIsSubmittingMatch(false);
+    }
+  };
+
+  const sendMessage = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const content = messageDraft.trim();
+    if (!content) return;
+    setFeedback('');
+    setIsSendingMessage(true);
+    try {
+      const conversation = await apiRequest<{ id: string }>('/conversations', {
+        method: 'POST',
+        body: JSON.stringify({ itemId: item.id, content }),
+      });
+      navigate(`/messages?conversation=${conversation.id}`);
+    } catch (reason) {
+      setFeedback(reason instanceof Error ? reason.message : 'Your message could not be sent.');
+    } finally {
+      setIsSendingMessage(false);
+    }
   };
 
   return (
@@ -245,21 +348,48 @@ const ItemDetails = ({ item, userName, isAuthenticated, onClose }: { item: DemoI
               : <Link className="demo-button" to="/login" state={{ from: `/items/${item.id}` }}>Log in to claim</Link>}
           </section>
         )}
+        {item.status === 'Lost' && (
+          <section className="item-modal__claim">
+            <div>
+              <strong>Have you found this item?</strong>
+              <p>Suggest a match to the administrator. The report owner is notified only after review.</p>
+            </div>
+            {item.lostItemStatus === 'MATCH_PENDING'
+              ? <span>Match under review</span>
+              : isAuthenticated
+                ? <button type="button" className="demo-button" onClick={() => { setMatchOpen(!matchOpen); setFeedback(''); }}>{matchOpen ? 'Cancel' : 'Suggest a match'}</button>
+                : <Link className="demo-button" to="/login" state={{ from: `/items/${item.id}` }}>Log in to suggest a match</Link>}
+          </section>
+        )}
+        {matchOpen && item.status === 'Lost' && (
+          <form className="demo-form item-claim-form" onSubmit={(event) => void submitMatchSuggestion(event)}>
+            <label>Where and when did you find it? Add details for the administrator to compare.<textarea required minLength={8} maxLength={1000} value={matchDetails} onChange={(event) => setMatchDetails(event.target.value)} placeholder="Describe the circumstances, location, and distinguishing details." /></label>
+            <label>Link an approved found-item report (optional)
+              <select value={matchedFoundItemId} onChange={(event) => setMatchedFoundItemId(event.target.value)}>
+                <option value="">I have not posted a found-item report</option>
+                {foundItems.map((foundItem) => <option value={foundItem.id} key={foundItem.id}>{foundItem.title} · {foundItem.location}</option>)}
+              </select>
+            </label>
+            <p>If you have not posted a found report, an administrator can still review your suggestion and record where the owner can collect the item.</p>
+            <button type="submit" className="demo-button" disabled={isSubmittingMatch}>{isSubmittingMatch ? 'Sending…' : 'Send match for review'}</button>
+          </form>
+        )}
         {claimOpen && (
-          <form className="demo-form item-claim-form" onSubmit={submitClaim}>
+          <form className="demo-form item-claim-form" onSubmit={(event) => void submitClaim(event)}>
             <label>Describe unique characteristics, brand/model, accessories, or contents.<textarea required minLength={8} value={claimAnswer} onChange={(event) => setClaimAnswer(event.target.value)} placeholder="Share multiple details that are not in the public listing." /></label>
             <label>When and where did you last have it?<input required value={claimEvidence} onChange={(event) => setClaimEvidence(event.target.value)} placeholder="Approximate date and campus location" /></label>
-            <label>Additional evidence (receipt, original photo, or other proof)<input type="file" accept="image/*,.pdf" onChange={(event) => setEvidenceFileName(event.currentTarget.files?.[0]?.name ?? '')} /></label>
-            <p>Demo only: claim details are stored in this browser. Claims remain Pending; real ownership decisions require independent admin review and must never rely on one answer alone.</p>
-            <button type="submit" className="demo-button">Submit claim for review</button>
+            <label>Additional evidence image (optional)<input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => selectProofImage(event.currentTarget.files?.[0])} /></label>
+            {proofImage && <p>{proofImage.name}</p>}
+            <p>Claims are reviewed by an administrator. Approval verifies the claim but does not confirm that the item has been physically handed over.</p>
+            <button type="submit" className="demo-button" disabled={isSubmittingClaim}>{isSubmittingClaim ? 'Submitting…' : 'Submit claim for review'}</button>
           </form>
         )}
 
         {isAuthenticated ? (
-          <form className="item-modal__message" onSubmit={sendMessage}>
-            <label htmlFor="item-message">Have a lead? Message {item.reporter ?? 'the reporter'}.</label>
-            <textarea id="item-message" name="message" required placeholder="Share where you saw it or how you can help." />
-            <div><span>Keep personal details out of public threads.</span><button type="submit" className="demo-button">Send message →</button></div>
+          <form className="item-modal__message" onSubmit={(event) => void sendMessage(event)}>
+            <label htmlFor="item-message">Have a lead? Send the poster a private message.</label>
+            <textarea id="item-message" required maxLength={2000} value={messageDraft} onChange={(event) => setMessageDraft(event.target.value)} placeholder="Share where you saw it or how you can help." />
+            <div><span>This message is private to you and the poster.</span><button type="submit" className="demo-button" disabled={isSendingMessage}>{isSendingMessage ? 'Sending…' : 'Send message →'}</button></div>
           </form>
         ) : <p className="item-modal__login-prompt"><Link to="/login" state={{ from: `/items/${item.id}` }}>Log in</Link> to message the reporter.</p>}
         {feedback && <p className="item-modal__feedback" role="status">{feedback}</p>}

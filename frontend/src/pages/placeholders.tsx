@@ -17,5 +17,3 @@ const DashboardNotice = ({ title, role }: { title: string; role: string }) => (
 );
 
 export const GuardDashboardPage = () => <DashboardNotice title="Item custody" role="Campus security" />;
-
-export const AdminDashboardPage = () => <DashboardNotice title="Administrator dashboard" role="Administrator" />;

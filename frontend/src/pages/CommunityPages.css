@@ -616,6 +616,23 @@
   padding: 28px 0 45px;
 }
 
+.claims-history-section {
+  display: grid;
+  gap: 12px;
+}
+
+.claims-history-section > h2 {
+  margin: 20px 0 2px;
+  color: #23332d;
+  font-size: 20px;
+}
+
+.claims-history-section > p {
+  margin: 0;
+  color: #78857e;
+  font-size: 14px;
+}
+
 .claim-card {
   display: flex;
   align-items: center;
@@ -637,6 +654,11 @@
 .claim-card h2 {
   margin: 7px 0 3px;
   font-size: 13px;
+}
+
+.claim-card h3 {
+  margin: 7px 0 3px;
+  font-size: 16px;
 }
 
 .claim-card p {
