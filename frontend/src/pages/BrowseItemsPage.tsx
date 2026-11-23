@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { PublicFooter, PublicHeader } from '../components/PublicNavigation';
 import { useAuth } from '../lib/AuthContext';
@@ -6,8 +6,6 @@ import { apiRequest } from '../lib/apiClient';
 import { readImageAsDataUrl } from '../lib/readImageAsDataUrl';
 import { getSavedItems, saveSavedItems, type ItemListing } from '../lib/itemData';
 import './BrowseItemsPage.css';
-
-const categories = ['All categories', 'Bags & wallets', 'Keys', 'Electronics', 'Everyday items', 'Accessories', 'Other'];
 
 type ApiItem = {
   id: string;
@@ -19,6 +17,7 @@ type ApiItem = {
   occurredAt: string;
   createdAt: string;
   imageUrl?: string;
+  mediaType?: 'IMAGE' | 'VIDEO';
   lostItemStatus?: 'OPEN' | 'MATCH_PENDING' | 'FOUND' | 'RETURNED';
 };
 
@@ -35,6 +34,7 @@ const toDisplayItem = (item: ApiItem): ItemListing => ({
   color: item.type === 'Found' ? 'mint' : 'sage',
   reporter: 'QCU community member',
   imageUrl: item.imageUrl,
+  mediaType: item.mediaType,
   lostItemStatus: item.lostItemStatus,
 });
 
@@ -49,13 +49,44 @@ export const BrowseItemsPage = () => {
   const [status, setStatus] = useState<'All items' | 'Lost' | 'Found'>('All items');
   const [category, setCategory] = useState('All categories');
   const [sortOrder, setSortOrder] = useState<'newest' | 'oldest'>('newest');
+  const [categories, setCategories] = useState(['All categories']);
+  const [location, setLocation] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
   const selectedItem = items.find((item) => item.id === itemId);
 
   useEffect(() => {
     let active = true;
-    apiRequest<ApiItem[]>('/items')
+    apiRequest<string[]>('/items/categories')
       .then((records) => {
-        if (active) setItems(records.map(toDisplayItem));
+        if (active) setCategories(['All categories', ...records]);
+      })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    const params = new URLSearchParams();
+    if (query.trim()) params.set('q', query.trim());
+    if (status !== 'All items') params.set('type', status);
+    if (category !== 'All categories') params.set('category', category);
+    if (location.trim()) params.set('location', location.trim());
+    if (dateFrom) params.set('dateFrom', dateFrom);
+    if (dateTo) params.set('dateTo', dateTo);
+    params.set('sort', sortOrder);
+    params.set('page', String(page));
+    params.set('pageSize', '12');
+    apiRequest<{ items: ApiItem[]; total: number; totalPages: number }>(`/items?${params.toString()}`)
+      .then((result) => {
+        if (active) {
+          setItems(result.items.map(toDisplayItem));
+          setTotal(result.total);
+          setTotalPages(result.totalPages);
+        }
       })
       .catch((reason: unknown) => {
         if (active) setItemsError(reason instanceof Error ? reason.message : 'Items could not be loaded.');
@@ -66,16 +97,7 @@ export const BrowseItemsPage = () => {
     return () => {
       active = false;
     };
-  }, []);
-
-  const filteredItems = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase();
-    return items
-      .filter((item) => status === 'All items' || item.status === status)
-      .filter((item) => category === 'All categories' || item.category === category)
-      .filter((item) => `${item.title} ${item.category} ${item.location} ${item.description}`.toLowerCase().includes(normalizedQuery))
-      .sort((first, second) => sortOrder === 'newest' ? first.daysAgo - second.daysAgo : second.daysAgo - first.daysAgo);
-  }, [category, items, query, sortOrder, status]);
+  }, [category, dateFrom, dateTo, location, page, query, sortOrder, status]);
 
   useEffect(() => {
     if (!selectedItem) return;
@@ -113,7 +135,7 @@ export const BrowseItemsPage = () => {
               <span aria-hidden="true">↗</span>
             </Link>
           </div>
-          <form className="browse-search" role="search" onSubmit={(event) => event.preventDefault()}>
+          <form className="browse-search" role="search" onSubmit={(event) => { event.preventDefault(); setPage(1); }}>
             <label className="browse-search__input">
               <span aria-hidden="true">⌕</span>
               <input
@@ -124,7 +146,7 @@ export const BrowseItemsPage = () => {
                 aria-label="Search lost and found items"
               />
             </label>
-            <span className="browse-search__location"><span aria-hidden="true">⌖</span> Quezon City University</span>
+            <label className="browse-search__location"><span aria-hidden="true">⌖</span><input type="search" value={location} onChange={(event) => { setLocation(event.target.value); setPage(1); }} placeholder="Location" aria-label="Location" /></label>
             <button type="submit" className="browse-search__button">⌕ Search items</button>
           </form>
         </section>
@@ -137,7 +159,7 @@ export const BrowseItemsPage = () => {
             </div>
             <label className="browse-sort">
               <span>Sort by:</span>
-              <select value={sortOrder} onChange={(event) => setSortOrder(event.target.value as 'newest' | 'oldest')}>
+              <select value={sortOrder} onChange={(event) => { setSortOrder(event.target.value as 'newest' | 'oldest'); setPage(1); }}>
                 <option value="newest">Most recent</option>
                 <option value="oldest">Oldest</option>
               </select>
@@ -146,14 +168,22 @@ export const BrowseItemsPage = () => {
           <div className="browse-controls">
             <div className="browse-tabs" role="group" aria-label="Filter by item status">
               {(['All items', 'Lost', 'Found'] as const).map((filter) => (
-                <button key={filter} type="button" className={status === filter ? 'browse-tab browse-tab--active' : 'browse-tab'} aria-pressed={status === filter} onClick={() => setStatus(filter)}>
-                  {filter} <span>{filter === 'All items' ? items.length : items.filter((item) => item.status === filter).length}</span>
+                <button key={filter} type="button" className={status === filter ? 'browse-tab browse-tab--active' : 'browse-tab'} aria-pressed={status === filter} onClick={() => { setStatus(filter); setPage(1); }}>
+                  {filter}
                 </button>
               ))}
             </div>
             <label className="browse-category">
+              <span>From</span>
+              <input type="date" value={dateFrom} onChange={(event) => { setDateFrom(event.target.value); setPage(1); }} />
+            </label>
+            <label className="browse-category">
+              <span>To</span>
+              <input type="date" value={dateTo} onChange={(event) => { setDateTo(event.target.value); setPage(1); }} />
+            </label>
+            <label className="browse-category">
               <span aria-hidden="true">▦</span>
-              <select value={category} onChange={(event) => setCategory(event.target.value)} aria-label="Filter by category">
+              <select value={category} onChange={(event) => { setCategory(event.target.value); setPage(1); }} aria-label="Filter by category">
                 {categories.map((option) => <option key={option}>{option}</option>)}
               </select>
             </label>
@@ -163,13 +193,17 @@ export const BrowseItemsPage = () => {
             <p className="browse-empty" role="status">Loading community items…</p>
           ) : itemsError ? (
             <div className="browse-empty" role="alert"><h3>Items could not be loaded</h3><p>{itemsError}</p><button type="button" onClick={() => window.location.reload()}>Try again</button></div>
-          ) : filteredItems.length ? (
+          ) : items.length ? (
             <div className="browse-grid">
-              {filteredItems.map((item) => (
+              {items.map((item) => (
                 <Link className="item-card" to={`/items/${item.id}`} key={item.id}>
                   <div className={`item-card__visual item-card__visual--${item.color}`} aria-hidden="true">
                     <span className={`item-card__status item-card__status--${item.status.toLowerCase()}`}>{item.status === 'Found' ? '✓' : '⌕'} {item.status}</span>
-                    {item.imageUrl ? <img className="item-card__photo" src={item.imageUrl} alt="" /> : <span className="item-card__emoji">{item.icon}</span>}
+                    {item.imageUrl
+                      ? item.mediaType === 'VIDEO'
+                        ? <video className="item-card__photo" src={item.imageUrl} muted preload="metadata" />
+                        : <img className="item-card__photo" src={item.imageUrl} alt="" />
+                      : <span className="item-card__emoji">{item.icon}</span>}
                     <span className="item-card__open">↗</span>
                   </div>
                   <div className="item-card__body">
@@ -185,11 +219,14 @@ export const BrowseItemsPage = () => {
             <div className="browse-empty">
               <span aria-hidden="true">⌕</span><h3>No matching items yet</h3>
               <p>Try a different search or category, or check back later.</p>
-              <button type="button" onClick={() => { setQuery(''); setStatus('All items'); setCategory('All categories'); }}>Clear filters</button>
+              <button type="button" onClick={() => { setQuery(''); setStatus('All items'); setCategory('All categories'); setLocation(''); setDateFrom(''); setDateTo(''); setPage(1); }}>Clear filters</button>
             </div>
           )}
           <div className="browse-results">
-            <span>Showing {filteredItems.length} of {items.length} community items</span>
+            <span>Showing {items.length} of {total} community items</span>
+            <button type="button" disabled={page <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>Previous</button>
+            <span>Page {page} of {totalPages}</span>
+            <button type="button" disabled={page >= totalPages} onClick={() => setPage((current) => Math.min(totalPages, current + 1))}>Next</button>
             <Link to="/report-item?type=lost">Report an item →</Link>
           </div>
         </section>
@@ -327,7 +364,11 @@ const ItemDetails = ({ item, foundItems, userName, isAuthenticated, onClose }: {
       <section className="item-modal" role="dialog" aria-modal="true" aria-labelledby="item-modal-title">
         <div className="item-modal__topline"><span>Lost &amp; found / Item details</span><button type="button" className="item-modal__close" onClick={onClose} aria-label="Close item details">×</button></div>
         <div className="item-modal__overview">
-          <div className={`item-modal__visual item-card__visual--${item.color}`}>{item.imageUrl ? <img src={item.imageUrl} alt={item.title} /> : <span aria-hidden="true">{item.icon}</span>}</div>
+          <div className={`item-modal__visual item-card__visual--${item.color}`}>{item.imageUrl
+            ? item.mediaType === 'VIDEO'
+              ? <video src={item.imageUrl} controls preload="metadata" />
+              : <img src={item.imageUrl} alt={item.title} />
+            : <span aria-hidden="true">{item.icon}</span>}</div>
           <div className="item-modal__summary">
             <div className="item-modal__meta"><span className={`item-card__status item-card__status--${item.status.toLowerCase()}`}>{item.status}</span><span>{item.category} · Posted {item.date}</span></div>
             <h2 id="item-modal-title">{item.title}</h2>

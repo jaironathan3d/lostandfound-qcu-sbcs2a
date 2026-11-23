@@ -18,6 +18,7 @@ type UserReport = {
   matchedFoundItemTitle?: string | null;
   resolutionLocation?: string | null;
   imageUrl?: string;
+  mediaType?: 'IMAGE' | 'VIDEO';
 };
 
 const reviewLabel: Record<UserReport['reviewStatus'], string> = {
@@ -80,7 +81,9 @@ export const MyReportsPage = () => {
             : <div className="my-reports-list">
               {reports.map((report) => (
                 <article className="my-report-card" key={report.id}>
-                  {report.imageUrl && <img src={report.imageUrl} alt="" />}
+                  {report.imageUrl && (report.mediaType === 'VIDEO'
+                    ? <video src={report.imageUrl} controls preload="metadata" />
+                    : <img src={report.imageUrl} alt="" />)}
                   <div className="my-report-card__content">
                     <div className="my-report-card__meta">
                       <span className={`my-report-status my-report-status--${report.reviewStatus.toLowerCase()}`}>{reviewLabel[report.reviewStatus]}</span>
@@ -95,9 +98,12 @@ export const MyReportsPage = () => {
                     )}
                   </div>
                   {report.reviewStatus === 'PENDING' && (
-                    <button type="button" disabled={busyReportId === report.id} onClick={() => void deleteReport(report)}>
-                      {busyReportId === report.id ? 'Deleting…' : 'Delete pending report'}
-                    </button>
+                    <>
+                      <Link to={`/report-item?edit=${report.id}&type=${report.type.toLowerCase()}`}>Edit pending report</Link>
+                      <button type="button" disabled={busyReportId === report.id} onClick={() => void deleteReport(report)}>
+                        {busyReportId === report.id ? 'Deleting…' : 'Delete pending report'}
+                      </button>
+                    </>
                   )}
                 </article>
               ))}

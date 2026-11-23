@@ -15,13 +15,85 @@ import { requireRoles } from '../../middlewares/requireRoles';
 
 export const adminRouter = Router();
 
-const requireAdmin = [requireAuth, requireRoles(UserRole.ADMIN, UserRole.SUPERADMIN)];
+const requireAdmin = [requireAuth, requireRoles(UserRole.ADMIN, UserRole.SUPER_ADMIN)];
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null;
 
 class ClaimReviewConflict extends Error {}
 class ItemMatchConflict extends Error {}
+
+adminRouter.get('/categories', ...requireAdmin, async (_req, res) => {
+  const categories = await prisma.category.findMany({
+    include: { _count: { select: { items: true } } },
+    orderBy: { name: 'asc' },
+  });
+  res.json(categories.map((category) => ({
+    id: category.id,
+    name: category.name,
+    itemCount: category._count.items,
+  })));
+});
+
+adminRouter.post('/categories', ...requireAdmin, async (req, res) => {
+  if (!isRecord(req.body) || typeof req.body.name !== 'string' || req.body.name.trim().length < 1 || req.body.name.trim().length > 60) {
+    res.status(400).json({ message: 'Enter a category name between 1 and 60 characters.' });
+    return;
+  }
+  try {
+    const category = await prisma.category.create({ data: { name: req.body.name.trim() } });
+    res.status(201).json(category);
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      res.status(409).json({ message: 'A category with that name already exists.' });
+      return;
+    }
+    throw error;
+  }
+});
+
+adminRouter.patch('/categories/:categoryId', ...requireAdmin, async (req, res) => {
+  if (!isRecord(req.body) || typeof req.body.name !== 'string' || req.body.name.trim().length < 1 || req.body.name.trim().length > 60) {
+    res.status(400).json({ message: 'Enter a category name between 1 and 60 characters.' });
+    return;
+  }
+  const categoryId = typeof req.params.categoryId === 'string' ? req.params.categoryId : '';
+  try {
+    const category = await prisma.category.update({
+      where: { id: categoryId },
+      data: { name: req.body.name.trim() },
+    });
+    res.json(category);
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      res.status(409).json({ message: 'A category with that name already exists.' });
+      return;
+    }
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
+      res.status(404).json({ message: 'Category not found.' });
+      return;
+    }
+    throw error;
+  }
+});
+
+adminRouter.delete('/categories/:categoryId', ...requireAdmin, async (req, res) => {
+  const categoryId = typeof req.params.categoryId === 'string' ? req.params.categoryId : '';
+  const category = await prisma.category.findUnique({
+    where: { id: categoryId },
+    include: { _count: { select: { items: true } } },
+  });
+  if (!category) {
+    res.status(404).json({ message: 'Category not found.' });
+    return;
+  }
+  if (category._count.items > 0) {
+    res.status(409).json({ message: 'Categories used by item reports cannot be deleted.' });
+    return;
+  }
+  await prisma.category.delete({ where: { id: categoryId } });
+  res.status(204).end();
+});
 
 adminRouter.get('/items', ...requireAdmin, async (req, res) => {
   const statusFilter = req.query.status;

@@ -1,14 +1,13 @@
 import { Router } from 'express';
 import { UserRole, Prisma } from '@prisma/client';
 import bcrypt from 'bcryptjs';
-import { OAuth2Client } from 'google-auth-library';
 import jwt, { type JwtPayload } from 'jsonwebtoken';
+import { createHash, randomBytes } from 'node:crypto';
 import { env } from '../../config/env';
 import { prisma } from '../../lib/prisma';
 
 export const authRouter = Router();
 
-const googleClient = new OAuth2Client();
 const passwordRounds = 12;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -49,39 +48,72 @@ authRouter.post('/register', async (req, res) => {
     return;
   }
 
-  const { email, password, fullName } = req.body;
+  const { email, password, confirmPassword, fullName, studentNumber, course, yearLevel, acceptedTerms, acceptedPrivacy } = req.body;
+  const normalizedEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
+  const normalizedStudentNumber = typeof studentNumber === 'string' ? studentNumber.trim() : '';
   if (
-    typeof email !== 'string' ||
-    typeof password !== 'string' ||
-    typeof fullName !== 'string' ||
-    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) ||
-    password.length < 8 ||
-    password.length > 72 ||
-    fullName.trim().length < 2 ||
-    fullName.trim().length > 100
+    typeof password !== 'string'
+    || typeof confirmPassword !== 'string'
+    || password !== confirmPassword
+    || typeof fullName !== 'string'
+    || typeof course !== 'string'
+    || typeof yearLevel !== 'string'
+    || acceptedTerms !== true
+    || acceptedPrivacy !== true
+    || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)
+    || !/^\d{2}-\d{4}$/.test(normalizedStudentNumber)
+    || password.length < 8
+    || password.length > 72
+    || fullName.trim().length < 2
+    || fullName.trim().length > 100
   ) {
     res.status(400).json({
-      message: 'Enter a valid name and email. Your password must be between 8 and 72 characters.',
+      message: 'Enter valid details, use a Student ID in ##-#### format, confirm the password, and accept Terms and Privacy.',
     });
     return;
   }
 
-  const normalizedEmail = email.trim().toLowerCase();
-  const existingUser = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+  const [existingUser, existingRecord] = await Promise.all([
+    prisma.user.findUnique({ where: { email: normalizedEmail } }),
+    prisma.studentRecord.findUnique({ where: { studentNumber: normalizedStudentNumber } }),
+  ]);
   if (existingUser) {
     res.status(409).json({ message: 'An account with that email already exists. Please log in.' });
     return;
   }
+  if (existingRecord) {
+    res.status(409).json({ message: 'A student account already uses that Student ID.' });
+    return;
+  }
 
   const passwordHash = await bcrypt.hash(password, passwordRounds);
+  const acceptedAt = new Date();
   try {
-    const user = await prisma.user.create({
-      data: {
-        email: normalizedEmail,
-        passwordHash,
-        fullName: fullName.trim(),
-        role: UserRole.STUDENT,
-      },
+    const user = await prisma.$transaction(async (transaction) => {
+      const created = await transaction.user.create({
+        data: {
+          email: normalizedEmail,
+          passwordHash,
+          fullName: fullName.trim(),
+          role: UserRole.STUDENT,
+          termsAcceptedAt: acceptedAt,
+          termsVersion: 'pilot-v1',
+          privacyAcceptedAt: acceptedAt,
+          privacyVersion: 'pilot-v1',
+        },
+      });
+      await transaction.studentRecord.create({
+        data: {
+          studentNumber: normalizedStudentNumber,
+          fullName: fullName.trim(),
+          course: course.trim(),
+          yearLevel: yearLevel.trim(),
+          universityEmail: normalizedEmail,
+          isActive: true,
+          userId: created.id,
+        },
+      });
+      return created;
     });
     res.status(201).json(issueSession(user));
   } catch (error) {
@@ -115,64 +147,73 @@ authRouter.post('/login', async (req, res) => {
   res.json(issueSession(user));
 });
 
-authRouter.post('/google', async (req, res) => {
-  if (!requireJwtSecret(res)) return;
-  if (!env.GOOGLE_CLIENT_ID) {
-    res.status(503).json({ message: 'Google sign-in is not configured on the server.' });
+authRouter.post('/forgot-password', async (req, res) => {
+  if (!isRecord(req.body) || typeof req.body.email !== 'string') {
+    res.status(200).json({ message: 'If that email is registered, password recovery instructions will be prepared.' });
     return;
   }
-  if (!isRecord(req.body) || typeof req.body.credential !== 'string') {
-    res.status(400).json({ message: 'A Google sign-in credential is required.' });
-    return;
-  }
-
-  let ticket;
-  try {
-    ticket = await googleClient.verifyIdToken({
-      idToken: req.body.credential,
-      audience: env.GOOGLE_CLIENT_ID,
+  const email = req.body.email.trim().toLowerCase();
+  const user = await prisma.user.findUnique({ where: { email } });
+  if (user) {
+    const rawToken = randomBytes(32).toString('hex');
+    const tokenHash = createHash('sha256').update(rawToken).digest('hex');
+    await prisma.passwordResetToken.updateMany({
+      where: { userId: user.id, usedAt: null },
+      data: { usedAt: new Date() },
     });
-  } catch {
-    res.status(401).json({ message: 'Google could not verify this sign-in. Please try again.' });
+    await prisma.passwordResetToken.create({
+      data: {
+        tokenHash,
+        userId: user.id,
+        expiresAt: new Date(Date.now() + 30 * 60 * 1000),
+      },
+    });
+  }
+  res.status(200).json({ message: 'If that email is registered, password recovery instructions will be prepared.' });
+});
+
+authRouter.post('/reset-password', async (req, res) => {
+  if (
+    !isRecord(req.body)
+    || typeof req.body.token !== 'string'
+    || typeof req.body.password !== 'string'
+    || typeof req.body.confirmPassword !== 'string'
+  ) {
+    res.status(400).json({ message: 'Enter the reset token and both password fields.' });
     return;
   }
-
-  const payload = ticket.getPayload();
-  if (!payload?.email || !payload.email_verified || !payload.sub || !payload.name) {
-    res.status(401).json({ message: 'Use a Google account with a verified email address.' });
+  if (req.body.password !== req.body.confirmPassword) {
+    res.status(400).json({ message: 'Password and confirm password must match.' });
     return;
   }
-
-  const email = payload.email.trim().toLowerCase();
-  const existingGoogleUser = await prisma.user.findUnique({ where: { googleId: payload.sub } });
-  const existingEmailUser = existingGoogleUser
-    ? null
-    : await prisma.user.findUnique({ where: { email } });
-
-  try {
-    const user = existingGoogleUser
-      ?? (existingEmailUser
-        ? await prisma.user.update({
-          where: { id: existingEmailUser.id },
-          data: { googleId: payload.sub },
-        })
-        : await prisma.user.create({
-          data: {
-            email,
-            googleId: payload.sub,
-            fullName: payload.name,
-            role: UserRole.STUDENT,
-          },
-        }));
-
-    res.json(issueSession(user));
-  } catch (error) {
-    if (isUniqueConstraintError(error)) {
-      res.status(409).json({ message: 'This Google account is already linked to another user.' });
-      return;
-    }
-    throw error;
+  if (req.body.password.length < 8 || req.body.password.length > 72) {
+    res.status(400).json({ message: 'Your password must be between 8 and 72 characters.' });
+    return;
   }
+  const tokenHash = createHash('sha256').update(req.body.token).digest('hex');
+  const resetToken = await prisma.passwordResetToken.findUnique({
+    where: { tokenHash },
+  });
+  if (!resetToken || resetToken.usedAt || resetToken.expiresAt <= new Date()) {
+    res.status(400).json({ message: 'This password reset link is invalid or has expired.' });
+    return;
+  }
+  const passwordHash = await bcrypt.hash(req.body.password, passwordRounds);
+  await prisma.$transaction([
+    prisma.user.update({
+      where: { id: resetToken.userId },
+      data: { passwordHash },
+    }),
+    prisma.passwordResetToken.update({
+      where: { id: resetToken.id },
+      data: { usedAt: new Date() },
+    }),
+    prisma.passwordResetToken.updateMany({
+      where: { userId: resetToken.userId, usedAt: null },
+      data: { usedAt: new Date() },
+    }),
+  ]);
+  res.json({ message: 'Password updated successfully. You can now log in.' });
 });
 
 authRouter.get('/me', async (req, res) => {

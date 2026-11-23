@@ -1,107 +1,9 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { useState, type FormEvent } from 'react';
+import { Link, Navigate, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../lib/AuthContext';
+import { apiRequest } from '../lib/apiClient';
 import './AuthPages.css';
 
-const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
-
-declare global {
-  interface Window {
-    google?: {
-      accounts: {
-        id: {
-          initialize: (options: {
-            client_id: string;
-            callback: (response: { credential: string }) => void;
-          }) => void;
-          renderButton: (
-            element: HTMLElement,
-            options: { theme: string; size: string; text: string; shape: string; width: number },
-          ) => void;
-        };
-      };
-    };
-  }
-}
-
-type GoogleSignInProps = {
-  onCredential: (credential: string) => Promise<void>;
-  onError: (message: string) => void;
-  disabled: boolean;
-};
-
-const GoogleSignIn = ({ onCredential, onError, disabled }: GoogleSignInProps) => {
-  const buttonRef = useRef<HTMLDivElement>(null);
-  const onCredentialRef = useRef(onCredential);
-  const onErrorRef = useRef(onError);
-  onCredentialRef.current = onCredential;
-  onErrorRef.current = onError;
-
-  useEffect(() => {
-    if (!googleClientId || !buttonRef.current) return;
-
-    const renderGoogleButton = () => {
-      if (!buttonRef.current || !window.google?.accounts.id) return;
-      window.google.accounts.id.initialize({
-        client_id: googleClientId,
-        callback: (response) => {
-          if (!response.credential) {
-            onErrorRef.current('Google did not return a sign-in credential. Please try again.');
-            return;
-          }
-          void onCredentialRef.current(response.credential).catch((error: unknown) => {
-            onErrorRef.current(error instanceof Error ? error.message : 'Google sign-in failed.');
-          });
-        },
-      });
-      window.google.accounts.id.renderButton(buttonRef.current, {
-        theme: 'outline',
-        size: 'large',
-        text: 'continue_with',
-        shape: 'rectangular',
-        width: Math.min(buttonRef.current.clientWidth, 380),
-      });
-    };
-
-    const script = document.querySelector<HTMLScriptElement>('script[data-google-identity]');
-    if (window.google?.accounts.id) {
-      renderGoogleButton();
-    } else if (script) {
-      script.addEventListener('load', renderGoogleButton, { once: true });
-      return () => script.removeEventListener('load', renderGoogleButton);
-    } else {
-      const googleScript = document.createElement('script');
-      googleScript.src = 'https://accounts.google.com/gsi/client';
-      googleScript.async = true;
-      googleScript.defer = true;
-      googleScript.dataset.googleIdentity = 'true';
-      googleScript.addEventListener('load', renderGoogleButton, { once: true });
-      googleScript.addEventListener(
-        'error',
-        () => onErrorRef.current('Google sign-in could not load. Check your internet connection.'),
-        { once: true },
-      );
-      document.head.appendChild(googleScript);
-      return () => googleScript.removeEventListener('load', renderGoogleButton);
-    }
-  }, []);
-
-  if (!googleClientId) {
-    return (
-      <button className="auth-google auth-google--unavailable" type="button" disabled>
-        <span aria-hidden="true">G</span>
-        Google sign-in needs setup
-      </button>
-    );
-  }
-
-  return (
-    <div className={disabled ? 'auth-google-wrap auth-google-wrap--disabled' : 'auth-google-wrap'}>
-      <div className="auth-google" ref={buttonRef} />
-      {disabled && <span className="auth-google-wrap__overlay" aria-hidden="true" />}
-    </div>
-  );
-};
 
 type AuthPageProps = {
   mode: 'login' | 'register';
@@ -109,18 +11,23 @@ type AuthPageProps = {
 
 const AuthPage = ({ mode }: AuthPageProps) => {
   const isRegister = mode === 'register';
-  const { user, isLoading, signIn, signUp, signInWithGoogle } = useAuth();
+  const { user, isLoading, signIn, signUp } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const requestedPath = (location.state as { from?: unknown } | null)?.from;
   const returnPath =
     typeof requestedPath === 'string' && requestedPath.startsWith('/') ? requestedPath : '/items';
   const [fullName, setFullName] = useState('');
+  const [studentNumber, setStudentNumber] = useState('');
+  const [course, setCourse] = useState('');
+  const [yearLevel, setYearLevel] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const [acceptedPrivacy, setAcceptedPrivacy] = useState(false);
 
   if (isLoading) {
     return <main className="auth-loading" aria-label="Checking your sign-in">Loading…</main>;
@@ -146,15 +53,21 @@ const AuthPage = ({ mode }: AuthPageProps) => {
       setError('Please agree to the terms and privacy policy to create an account.');
       return;
     }
+    if (isRegister && !acceptedPrivacy) {
+      setError('Please acknowledge the Privacy Notice to create an account.');
+      return;
+    }
+    if (isRegister && password !== confirmPassword) {
+      setError('Password and confirm password must match.');
+      return;
+    }
     void completeSignIn(() =>
       isRegister
-        ? signUp(fullName, email, password)
+        ? signUp(fullName, email, password, confirmPassword, studentNumber, course, yearLevel, acceptedTerms, acceptedPrivacy)
         : signIn(email, password),
     );
   };
 
-  const handleGoogleCredential = (credential: string) =>
-    completeSignIn(() => signInWithGoogle(credential));
 
   return (
     <main className="auth-page">
@@ -181,8 +94,6 @@ const AuthPage = ({ mode }: AuthPageProps) => {
             <h2 id="auth-title">{isRegister ? 'A little closer to home.' : 'Welcome back.'}</h2>
             <p>{isRegister ? 'Join your neighbors in bringing belongings back. Creating an account is free and takes a moment.' : 'Log in to keep looking, lend a hand, or pick up where you left off.'}</p>
           </div>
-          <GoogleSignIn onCredential={handleGoogleCredential} onError={setError} disabled={isSubmitting} />
-          <div className="auth-divider"><span>or continue with email</span></div>
           <form className="auth-form" onSubmit={handleSubmit}>
           {isRegister && (
             <label>
@@ -198,8 +109,47 @@ const AuthPage = ({ mode }: AuthPageProps) => {
               />
             </label>
           )}
+          {isRegister && (
+            <label>
+              CCS student number
+              <input
+                required
+                minLength={3}
+                maxLength={30}
+                value={studentNumber}
+                onChange={(event) => setStudentNumber(event.target.value)}
+                placeholder="24-1234"
+                pattern="[0-9]{2}-[0-9]{4}"
+              />
+            </label>
+          )}
+          {isRegister && (
+            <label>
+              Course / program
+              <input
+                required
+                minLength={2}
+                maxLength={100}
+                value={course}
+                onChange={(event) => setCourse(event.target.value)}
+                placeholder="BSCS"
+              />
+            </label>
+          )}
+          {isRegister && (
+            <label>
+              Year level
+              <select required value={yearLevel} onChange={(event) => setYearLevel(event.target.value)}>
+                <option value="">Select year level</option>
+                <option value="1st Year">1st Year</option>
+                <option value="2nd Year">2nd Year</option>
+                <option value="3rd Year">3rd Year</option>
+                <option value="4th Year">4th Year</option>
+              </select>
+            </label>
+          )}
           <label>
-            Email address
+            {isRegister ? 'University email' : 'Email address'}
             <input
               type="email"
               autoComplete="email"
@@ -223,8 +173,34 @@ const AuthPage = ({ mode }: AuthPageProps) => {
               placeholder={isRegister ? 'At least 8 characters' : 'Your password'}
             />
           </label>
-          {isRegister && <label className="auth-terms"><input type="checkbox" required checked={acceptedTerms} onChange={(event) => setAcceptedTerms(event.target.checked)} /><span>I agree to the <Link to="/safety-help">Terms of service</Link> and <Link to="/safety-help">Privacy policy</Link>.</span></label>}
-          {!isRegister && <div className="auth-remember"><label><input type="checkbox" /> Remember me</label><Link to="/safety-help">Need help?</Link></div>}
+          {isRegister && (
+            <label>
+              Confirm password
+              <input
+                type="password"
+                autoComplete="new-password"
+                required
+                minLength={8}
+                maxLength={72}
+                value={confirmPassword}
+                onChange={(event) => setConfirmPassword(event.target.value)}
+                placeholder="Repeat your password"
+              />
+            </label>
+          )}
+          {isRegister && (
+            <>
+              <label className="auth-terms">
+                <input type="checkbox" required checked={acceptedTerms} onChange={(event) => setAcceptedTerms(event.target.checked)} />
+                <span>I accept the <Link to="/terms">Terms of Service</Link>.</span>
+              </label>
+              <label className="auth-terms">
+                <input type="checkbox" required checked={acceptedPrivacy} onChange={(event) => setAcceptedPrivacy(event.target.checked)} />
+                <span>I acknowledge the <Link to="/privacy">Privacy Notice</Link>.</span>
+              </label>
+            </>
+          )}
+          {!isRegister && <div className="auth-remember"><label><input type="checkbox" /> Remember me</label><Link to="/forgot-password">Forgot password?</Link></div>}
           {error && <p className="auth-error" role="alert">{error}</p>}
           <button className="auth-submit" type="submit" disabled={isSubmitting}>
           {isSubmitting ? 'Please wait…' : isRegister ? '→　Create account' : '→　Log in'}
@@ -241,3 +217,97 @@ const AuthPage = ({ mode }: AuthPageProps) => {
 
 export const LoginPage = () => <AuthPage mode="login" />;
 export const RegisterPage = () => <AuthPage mode="register" />;
+
+export const ForgotPasswordPage = () => {
+  const [email, setEmail] = useState('');
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const submitForm = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setIsSubmitting(true);
+    setError('');
+    setMessage('');
+    try {
+      const result = await apiRequest<{ message: string }>('/auth/forgot-password', {
+        method: 'POST',
+        body: JSON.stringify({ email }),
+      });
+      setMessage(result.message);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Password recovery could not be requested.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <main className="auth-page">
+      <section className="auth-main">
+        <div className="auth-card">
+          <div className="auth-card__intro">
+            <p className="auth-eyebrow">ACCOUNT RECOVERY</p>
+            <h2 id="auth-title">Forgot password</h2>
+            <p>Password recovery requires a configured email delivery service. This development setup does not send real email.</p>
+          </div>
+          <form className="auth-form" onSubmit={submitForm}>
+            <label>Email address<input type="email" required value={email} onChange={(event) => setEmail(event.target.value)} /></label>
+            {message && <p className="auth-error" role="status">{message}</p>}
+            {error && <p className="auth-error" role="alert">{error}</p>}
+            <button className="auth-submit" type="submit" disabled={isSubmitting}>{isSubmitting ? 'Please wait…' : 'Request recovery'}</button>
+          </form>
+          <p className="auth-switch"><Link to="/login">Back to login</Link></p>
+        </div>
+      </section>
+    </main>
+  );
+};
+
+export const ResetPasswordPage = () => {
+  const [searchParams] = useSearchParams();
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setIsSubmitting(true);
+    setError('');
+    setMessage('');
+    try {
+      const result = await apiRequest<{ message: string }>('/auth/reset-password', {
+        method: 'POST',
+        body: JSON.stringify({ token: searchParams.get('token') ?? '', password, confirmPassword }),
+      });
+      setMessage(result.message);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Password could not be reset.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <main className="auth-page">
+      <section className="auth-main">
+        <div className="auth-card">
+          <div className="auth-card__intro">
+            <p className="auth-eyebrow">ACCOUNT RECOVERY</p>
+            <h2 id="auth-title">Reset password</h2>
+          </div>
+          <form className="auth-form" onSubmit={submit}>
+            <label>New password<input type="password" required minLength={8} maxLength={72} value={password} onChange={(event) => setPassword(event.target.value)} /></label>
+            <label>Confirm password<input type="password" required minLength={8} maxLength={72} value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} /></label>
+            {message && <p className="auth-error" role="status">{message}</p>}
+            {error && <p className="auth-error" role="alert">{error}</p>}
+            <button className="auth-submit" type="submit" disabled={isSubmitting}>{isSubmitting ? 'Please wait…' : 'Update password'}</button>
+          </form>
+          <p className="auth-switch"><Link to="/login">Back to login</Link></p>
+        </div>
+      </section>
+    </main>
+  );
+};

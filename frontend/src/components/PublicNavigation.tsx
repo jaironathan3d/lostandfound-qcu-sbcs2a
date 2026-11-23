@@ -30,15 +30,18 @@ export const PublicHeader = () => {
         {user ? (
           <>
             <span className="public-user" title={user.fullName}>{user.fullName}</span>
-            {['student', 'professor', 'staff'].includes(user.role) && (
+            {user.role === 'student' && (
               <>
                 <Link className="public-login" to="/my-reports">My reports</Link>
                 <Link className="public-login" to="/my-claims">My claims</Link>
               </>
             )}
             <Link className="public-login" to="/messages">Messages</Link>
-            {(user.role === 'admin' || user.role === 'superadmin') && (
-              <Link className="public-login" to="/admin-dashboard">Admin review</Link>
+            {(user.role === 'admin' || user.role === 'super_admin') && (
+              <>
+                <Link className="public-login" to="/admin-dashboard">Admin review</Link>
+                <Link className="public-login" to="/admin-dashboard/students">Students</Link>
+              </>
             )}
             <button type="button" className="public-signup public-signup--logout" onClick={signOut}>
               Log out

@@ -9,11 +9,8 @@ datasource db {
 
 enum UserRole {
   STUDENT
-  PROFESSOR
-  STAFF
-  SECURITY_GUARD
   ADMIN
-  SUPERADMIN
+  SUPER_ADMIN
 }
 
 enum ItemStatus {
@@ -54,13 +51,23 @@ enum ClaimStatus {
   REJECTED
 }
 
+enum ItemMediaType {
+  IMAGE
+  VIDEO
+}
+
 model User {
   id                         String                 @id @default(cuid())
   email                      String                 @unique
   passwordHash               String?
-  googleId                   String?                @unique
   fullName                   String
   role                       UserRole
+  termsAcceptedAt            DateTime?
+  termsVersion               String?
+  privacyAcceptedAt          DateTime?
+  privacyVersion             String?
+  studentRecord              StudentRecord?
+  passwordResetTokens        PasswordResetToken[]
   createdAt                  DateTime               @default(now())
   updatedAt                  DateTime               @updatedAt
   reportedItems              Item[]                 @relation("ReporterItems")
@@ -81,12 +88,29 @@ model User {
   reviewedItemMatches        ItemMatchSuggestion[]  @relation("MatchReviewer")
 }
 
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  tokenHash String   @unique
+  userId    String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+}
+
 model StudentRecord {
   id            String   @id @default(cuid())
   studentNumber String   @unique
   fullName      String
   course        String
-  classSchedule String
+  yearLevel     String   @default("N/A")
+  universityEmail String? @unique
+  isActive      Boolean  @default(true)
+  classSchedule String?
+  userId        String?  @unique
+  user          User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 }
@@ -135,6 +159,8 @@ model ItemImage {
   id        String   @id @default(cuid())
   itemId    String
   imageUrl  String
+  mediaType ItemMediaType @default(IMAGE)
+  fileName  String?
   createdAt DateTime @default(now())
   item      Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
 }

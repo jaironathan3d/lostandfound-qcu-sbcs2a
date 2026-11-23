@@ -3,11 +3,9 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { PublicFooter, PublicHeader } from '../components/PublicNavigation';
 import { useAuth } from '../lib/AuthContext';
 import { apiRequest } from '../lib/apiClient';
-import { readImageAsDataUrl } from '../lib/readImageAsDataUrl';
+import { readMediaAsDataUrl } from '../lib/readMediaAsDataUrl';
 import type { ItemStatus } from '../lib/itemData';
 import './CommunityPages.css';
-
-const categories = ['Bags & wallets', 'Keys', 'Electronics', 'Everyday items', 'Accessories', 'Other'];
 
 export const ReportItemPage = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -16,7 +14,8 @@ export const ReportItemPage = () => {
   const defaultContact = user?.email.includes('@') ? user.email : '';
   const [type, setType] = useState<ItemStatus>(initialType);
   const [title, setTitle] = useState('');
-  const [category, setCategory] = useState(categories[0]);
+  const [categories, setCategories] = useState(['Other']);
+  const [category, setCategory] = useState('Other');
   const [description, setDescription] = useState('');
   const [privateDetails, setPrivateDetails] = useState('');
   const [location, setLocation] = useState('');
@@ -25,14 +24,69 @@ export const ReportItemPage = () => {
   const [custodyLocation, setCustodyLocation] = useState('');
   const [photo, setPhoto] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState('');
+  const [video, setVideo] = useState<File | null>(null);
+  const [videoPreview, setVideoPreview] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
+    const editId = searchParams.get('edit');
+    if (!editId) return;
+    let active = true;
+    apiRequest<Array<{
+      id: string;
+      title: string;
+      type: 'Lost' | 'Found';
+      category: string;
+      description: string;
+      privateDetails: string;
+      location: string;
+      occurredAt: string;
+      contactEmail: string | null;
+      custodyLocation: string | null;
+      reviewStatus: 'PENDING' | 'APPROVED' | 'REJECTED';
+    }>>('/items/mine')
+      .then((reports) => {
+        const report = reports.find((entry) => entry.id === editId);
+        if (!active || !report) return;
+        if (report.reviewStatus !== 'PENDING') {
+          setError('Only reports awaiting review can be edited.');
+          return;
+        }
+        setType(report.type);
+        setTitle(report.title);
+        setCategory(report.category);
+        setDescription(report.description);
+        setPrivateDetails(report.privateDetails);
+        setLocation(report.location);
+        setDate(report.occurredAt.slice(0, 10));
+        setContact(report.contactEmail ?? '');
+        setCustodyLocation(report.custodyLocation ?? '');
+      })
+      .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : 'The report could not be loaded.'));
+    return () => { active = false; };
+  }, [searchParams]);
+
+  useEffect(() => {
     if (!photoPreview) return;
     return () => URL.revokeObjectURL(photoPreview);
   }, [photoPreview]);
+
+  useEffect(() => {
+    let active = true;
+    apiRequest<string[]>('/items/categories')
+      .then((records) => {
+        if (!active) return;
+        setCategories(records.length > 0 ? records : ['Other']);
+      })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, []);
+  useEffect(() => {
+    if (!videoPreview) return;
+    return () => URL.revokeObjectURL(videoPreview);
+  }, [videoPreview]);
 
   const changeType = (nextType: ItemStatus) => {
     setType(nextType);
@@ -59,14 +113,36 @@ export const ReportItemPage = () => {
     setPhotoPreview(URL.createObjectURL(file));
   };
 
+  const onVideoChange = (file?: File) => {
+    setError('');
+    if (!file) {
+      setVideo(null);
+      setVideoPreview('');
+      return;
+    }
+    if (!['video/mp4', 'video/webm'].includes(file.type)) {
+      setError('Choose an MP4 or WebM video to attach.');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setError('Choose a video smaller than 5 MB.');
+      return;
+    }
+    setVideo(file);
+    setVideoPreview(URL.createObjectURL(file));
+  };
+
   const submitReport = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError('');
     setIsSubmitting(true);
     try {
-      const imageDataUrl = photo ? await readImageAsDataUrl(photo) : undefined;
-      await apiRequest('/items', {
-        method: 'POST',
+      const media: Array<{ type: 'IMAGE' | 'VIDEO'; dataUrl: string; fileName: string }> = [];
+      if (photo) media.push({ type: 'IMAGE', dataUrl: await readMediaAsDataUrl(photo), fileName: photo.name });
+      if (video) media.push({ type: 'VIDEO', dataUrl: await readMediaAsDataUrl(video), fileName: video.name });
+      const editId = searchParams.get('edit');
+      await apiRequest(editId ? `/items/${editId}` : '/items', {
+        method: editId ? 'PATCH' : 'POST',
         body: JSON.stringify({
           type,
           title: title.trim(),
@@ -77,7 +153,7 @@ export const ReportItemPage = () => {
           privateDetails: privateDetails.trim(),
           contactEmail: contact.trim(),
           custodyLocation: type === 'Found' ? custodyLocation.trim() : undefined,
-          imageDataUrl,
+          media,
         }),
       });
       setSuccess(true);
@@ -97,7 +173,7 @@ export const ReportItemPage = () => {
       <main className="report-layout">
         {success ? (
           <section className="report-success" role="status">
-            <span aria-hidden="true">✓</span><h2>Your {type.toLowerCase()} item report is saved.</h2>
+            <span aria-hidden="true">✓</span><h2>Your {type.toLowerCase()} item report is {searchParams.get('edit') ? 'updated' : 'saved'}.</h2>
             <p>Your report is saved and waiting for administrator approval. It will appear in public listings after approval.</p>
             <Link className="community-button" to="/my-reports">Track or delete your pending report</Link>
           </section>
@@ -140,6 +216,13 @@ export const ReportItemPage = () => {
                 <label className="community-button community-button--secondary report-photo__picker">＋ Add a photo<input type="file" accept="image/*" onChange={(event) => onPhotoChange(event.currentTarget.files?.[0])} /></label>
                 {photo && <button type="button" className="report-photo__remove" onClick={() => onPhotoChange()}>Remove {photo.name}</button>}
                 <small>JPG, PNG, or WebP · Up to 1 MB</small>
+              </section>
+              <section className="report-photo">
+                <h2>Add a video</h2><p>Optional. Add one short MP4 or WebM clip.</p>
+                {videoPreview ? <video className="report-photo__preview" src={videoPreview} controls /> : <div className="report-photo__empty" aria-hidden="true">▶</div>}
+                <label className="community-button community-button--secondary report-photo__picker">＋ Add a video<input type="file" accept="video/mp4,video/webm" onChange={(event) => onVideoChange(event.currentTarget.files?.[0])} /></label>
+                {video && <button type="button" className="report-photo__remove" onClick={() => onVideoChange()}>Remove {video.name}</button>}
+                <small>MP4 or WebM · Up to 5 MB</small>
               </section>
               <section className="report-guidance"><h2>A good report goes a long way.</h2><strong>Be specific</strong><p>Mention the color, brand, and any visible features.</p><strong>Keep a detail just for you</strong><p>Save a unique mark or the contents to help prove ownership.</p><strong>Stay safe</strong><p>Meet in a public place and never send money to recover an item.</p></section>
               <section className="report-guidance report-guidance--plain"><h2>What happens next?</h2><p>An administrator reviews your report before it appears in the lost &amp; found listings. Private identifying details and contact information are never shown publicly.</p></section>

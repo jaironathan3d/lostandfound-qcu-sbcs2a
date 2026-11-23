@@ -110,6 +110,7 @@ export const AdminDashboardPage = () => {
           <Link className="admin-view-link admin-view-link--active" to="/admin-dashboard">Claim review</Link>
           <Link className="admin-view-link" to="/admin-dashboard/reports">Item report moderation</Link>
           <Link className="admin-view-link" to="/admin-dashboard/matches">Lost-item matches</Link>
+          <Link className="admin-view-link" to="/admin-dashboard/students">Student records</Link>
         </nav>
 
         <section className="admin-summary" aria-label="Claim counts">

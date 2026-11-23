@@ -190,50 +190,6 @@
   line-height: 1.5;
 }
 
-.auth-google-wrap,
-.auth-google--unavailable {
-  min-height: 40px;
-}
-
-.auth-google-wrap {
-  position: relative;
-}
-
-.auth-google-wrap--disabled .auth-google {
-  opacity: 0.5;
-}
-
-.auth-google-wrap__overlay {
-  position: absolute;
-  inset: 0;
-}
-
-.auth-google {
-  display: flex;
-  width: 100%;
-  min-height: 40px;
-  justify-content: center;
-}
-
-.auth-google--unavailable {
-  display: flex;
-  width: 100%;
-  align-items: center;
-  justify-content: center;
-  gap: 9px;
-  border: 1px solid #dfe5e1;
-  border-radius: 5px;
-  background: #fff;
-  color: #66746d;
-  font: inherit;
-  font-size: 10px;
-}
-
-.auth-google--unavailable span {
-  color: #4285f4;
-  font-size: 14px;
-  font-weight: 700;
-}
 
 .auth-divider {
   display: flex;
@@ -265,7 +221,8 @@
   font-weight: 600;
 }
 
-.auth-form input:not([type="checkbox"]) {
+.auth-form input:not([type="checkbox"]),
+.auth-form select {
   width: 100%;
   min-height: 37px;
   box-sizing: border-box;
@@ -278,7 +235,8 @@
   font-size: 11px;
 }
 
-.auth-form input:focus {
+.auth-form input:focus,
+.auth-form select:focus {
   border-color: #368a7a;
   box-shadow: 0 0 0 3px rgb(32 115 102 / 11%);
 }
@@ -355,20 +313,11 @@
   line-height: 1.5;
 }
 
-.auth-google-help,
 .auth-privacy {
   color: #87918c;
   font-size: 9px;
   line-height: 1.55;
   text-align: center;
-}
-
-.auth-google-help {
-  margin: 8px 0 0;
-}
-
-.auth-google-help code {
-  color: #52635c;
 }
 
 .auth-switch {

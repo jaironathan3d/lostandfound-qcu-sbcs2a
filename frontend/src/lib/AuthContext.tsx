@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { API_BASE_URL } from './apiClient';
 
-export type AppRole = 'student' | 'professor' | 'staff' | 'security_guard' | 'admin' | 'superadmin';
+export type AppRole = 'student' | 'admin' | 'super_admin';
 
 export type AuthUser = {
   id: string;
@@ -19,8 +19,7 @@ type AuthContextValue = {
   user: AuthUser | null;
   isLoading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
-  signUp: (fullName: string, email: string, password: string) => Promise<void>;
-  signInWithGoogle: (credential: string) => Promise<void>;
+  signUp: (fullName: string, email: string, password: string, confirmPassword: string, studentNumber: string, course: string, yearLevel: string, acceptedTerms: boolean, acceptedPrivacy: boolean) => Promise<void>;
   signOut: () => void;
 };
 
@@ -43,7 +42,7 @@ const getErrorMessage = (body: unknown, fallback: string): string => {
 };
 
 const saveSession = (value: unknown): AuthResponse => {
-  const allowedRoles: AppRole[] = ['student', 'professor', 'staff', 'security_guard', 'admin', 'superadmin'];
+  const allowedRoles: AppRole[] = ['student', 'admin', 'super_admin'];
   if (
     !isRecord(value) ||
     typeof value.token !== 'string' ||
@@ -74,7 +73,7 @@ const saveSession = (value: unknown): AuthResponse => {
   return response;
 };
 
-const postAuth = async (path: string, data: Record<string, string>): Promise<AuthResponse> => {
+const postAuth = async (path: string, data: Record<string, string | boolean>): Promise<AuthResponse> => {
   let response: Response;
   try {
     response = await fetch(`${API_BASE_URL}/auth/${path}`, {
@@ -141,12 +140,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       const session = await postAuth('login', { email, password });
       setUser(session.user);
     },
-    signUp: async (fullName, email, password) => {
-      const session = await postAuth('register', { fullName, email, password });
-      setUser(session.user);
-    },
-    signInWithGoogle: async (credential) => {
-      const session = await postAuth('google', { credential });
+    signUp: async (fullName, email, password, confirmPassword, studentNumber, course, yearLevel, acceptedTerms, acceptedPrivacy) => {
+      const session = await postAuth('register', { fullName, email, password, confirmPassword, studentNumber, course, yearLevel, acceptedTerms, acceptedPrivacy });
       setUser(session.user);
     },
     signOut: () => {

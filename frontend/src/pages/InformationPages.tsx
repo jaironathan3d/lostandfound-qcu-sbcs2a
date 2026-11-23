@@ -122,3 +122,49 @@ export const SafetyHelpPage = () => (
     <PublicFooter />
   </div>
 );
+
+const LegalPage = ({ title, eyebrow, paragraphs }: { title: string; eyebrow: string; paragraphs: string[] }) => (
+  <div className="info-page">
+    <PublicHeader />
+    <main className="info-content">
+      <header className="info-intro">
+        <p className="info-eyebrow">{eyebrow}</p>
+        <h1>{title}</h1>
+      </header>
+      <section className="info-steps" aria-label={title}>
+        {paragraphs.map((paragraph) => (
+          <article className="info-step" key={paragraph}>
+            <p>{paragraph}</p>
+          </article>
+        ))}
+      </section>
+    </main>
+    <PublicFooter />
+  </div>
+);
+
+export const TermsPage = () => (
+  <LegalPage
+    title="Terms of Service"
+    eyebrow="PILOT PROGRAM TERMS"
+    paragraphs={[
+      'This Lost and Found website is an academic pilot system for reporting, finding, claiming, and returning belongings within an approved campus setting.',
+      'Users must submit accurate information, avoid fraudulent claims or false reports, respect other users, and use private chat only for appropriate lost-and-found communication.',
+      'The system does not guarantee the return or custody of an item. Users remain responsible for safe, respectful, and appropriately supervised item returns.',
+      'Abuse, impersonation, harassment, misuse of records, or unauthorized access may result in account suspension or administrator review.',
+    ]}
+  />
+);
+
+export const PrivacyPage = () => (
+  <LegalPage
+    title="Privacy Notice"
+    eyebrow="HOW THIS PILOT HANDLES DATA"
+    paragraphs={[
+      'The system collects account, student-record, report, claim, conversation, and relevant activity information needed to operate the Lost and Found pilot.',
+      'Student IDs and private contact details are restricted to authorized system functions and are not intended for public listing pages.',
+      'Passwords are stored as secure hashes. Claim answers, supporting documents, and private messages are restricted to authorized users.',
+      'Project owners must review applicable retention, correction, deletion, consent, and participant-handling requirements before real pilot deployment.',
+    ]}
+  />
+);

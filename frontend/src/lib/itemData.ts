@@ -14,6 +14,7 @@ export type ItemListing = {
   description: string;
   reporter?: string;
   imageUrl?: string;
+  mediaType?: 'IMAGE' | 'VIDEO';
   lostItemStatus?: LostItemStatus;
 };
 

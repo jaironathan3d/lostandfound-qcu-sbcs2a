@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { ItemReviewStatus, ItemStatus, LostItemStatus, ReportType } from '@prisma/client';
+import { ItemMediaType, ItemReviewStatus, ItemStatus, LostItemStatus, Prisma, ReportType } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { requireAuth } from '../../middlewares/requireAuth';
 
@@ -12,25 +12,111 @@ const isText = (value: unknown, minLength: number, maxLength: number): value is 
   typeof value === 'string' && value.trim().length >= minLength && value.trim().length <= maxLength;
 
 const imageDataUrlPattern = /^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/;
+const videoDataUrlPattern = /^data:video\/(?:mp4|webm);base64,[A-Za-z0-9+/]+={0,2}$/;
 
-itemsRouter.get('/', async (_req, res) => {
-  const items = await prisma.item.findMany({
-    where: {
-      status: ItemStatus.REPORTED,
-      reviewStatus: ItemReviewStatus.APPROVED,
-      OR: [
-        { reportType: ReportType.FOUND },
-        { reportType: ReportType.LOST, lostItemStatus: { in: [LostItemStatus.OPEN, LostItemStatus.MATCH_PENDING] } },
-      ],
-    },
-    include: {
-      category: { select: { name: true } },
-      images: { select: { imageUrl: true }, take: 1 },
-    },
-    orderBy: { createdAt: 'desc' },
+const getValidatedMedia = (body: Record<string, unknown>): Array<{ dataUrl: string; mediaType: ItemMediaType; fileName: string | null }> | null => {
+  const media = body.media;
+  if (media === undefined) {
+    if (typeof body.imageDataUrl === 'string' && body.imageDataUrl) {
+      if (body.imageDataUrl.length > 1_400_000 || !imageDataUrlPattern.test(body.imageDataUrl)) return null;
+      return [{ dataUrl: body.imageDataUrl, mediaType: ItemMediaType.IMAGE, fileName: null }];
+    }
+    return [];
+  }
+  if (!Array.isArray(media) || media.length > 4) return null;
+  const validated: Array<{ dataUrl: string; mediaType: ItemMediaType; fileName: string | null }> = [];
+  for (const entry of media) {
+    if (!isRecord(entry) || typeof entry.dataUrl !== 'string' || typeof entry.type !== 'string') return null;
+    if (entry.type === 'IMAGE') {
+      if (entry.dataUrl.length > 1_400_000 || !imageDataUrlPattern.test(entry.dataUrl)) return null;
+    } else if (entry.type === 'VIDEO') {
+      if (entry.dataUrl.length > 7_000_000 || !videoDataUrlPattern.test(entry.dataUrl)) return null;
+    } else {
+      return null;
+    }
+    validated.push({
+      dataUrl: entry.dataUrl,
+      mediaType: entry.type === 'VIDEO' ? ItemMediaType.VIDEO : ItemMediaType.IMAGE,
+      fileName: typeof entry.fileName === 'string' && entry.fileName.length <= 180 ? entry.fileName : null,
+    });
+  }
+  return validated;
+};
+
+itemsRouter.get('/categories', async (_req, res) => {
+  const categories = await prisma.category.findMany({
+    orderBy: { name: 'asc' },
   });
+  res.json(categories.map((category) => category.name));
+});
 
-  res.json(items.map((item) => ({
+itemsRouter.get('/', async (req, res) => {
+  const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+  const type = typeof req.query.type === 'string' ? req.query.type : '';
+  const category = typeof req.query.category === 'string' ? req.query.category.trim() : '';
+  const location = typeof req.query.location === 'string' ? req.query.location.trim() : '';
+  const dateFrom = typeof req.query.dateFrom === 'string' ? req.query.dateFrom : '';
+  const dateTo = typeof req.query.dateTo === 'string' ? req.query.dateTo : '';
+  const sort = req.query.sort === 'oldest' ? 'oldest' : 'newest';
+  const page = Math.max(1, Number.parseInt(typeof req.query.page === 'string' ? req.query.page : '1', 10) || 1);
+  const pageSize = Math.min(24, Math.max(1, Number.parseInt(typeof req.query.pageSize === 'string' ? req.query.pageSize : '12', 10) || 12));
+
+  if (type && type !== 'Lost' && type !== 'Found') {
+    res.status(400).json({ message: 'Choose a valid item type.' });
+    return;
+  }
+
+  const validDateFrom = !dateFrom || /^\d{4}-\d{2}-\d{2}$/.test(dateFrom);
+  const validDateTo = !dateTo || /^\d{4}-\d{2}-\d{2}$/.test(dateTo);
+  if (!validDateFrom || !validDateTo) {
+    res.status(400).json({ message: 'Choose valid date filters.' });
+    return;
+  }
+
+  const where: Prisma.ItemWhereInput = {
+    status: ItemStatus.REPORTED,
+    reviewStatus: ItemReviewStatus.APPROVED,
+    OR: [
+      { reportType: ReportType.FOUND },
+      { reportType: ReportType.LOST, lostItemStatus: { in: [LostItemStatus.OPEN, LostItemStatus.MATCH_PENDING] } },
+    ],
+  };
+  if (type) where.reportType = type === 'Found' ? ReportType.FOUND : ReportType.LOST;
+  if (category && category !== 'All categories') where.category = { name: category };
+  if (location) where.building = { contains: location, mode: 'insensitive' };
+  if (q) {
+    where.AND = [{
+      OR: [
+        { title: { contains: q, mode: 'insensitive' } },
+        { description: { contains: q, mode: 'insensitive' } },
+        { building: { contains: q, mode: 'insensitive' } },
+        { category: { name: { contains: q, mode: 'insensitive' } } },
+      ],
+    }];
+  }
+  if (dateFrom || dateTo) {
+    where.occurredAt = {
+      ...(dateFrom ? { gte: new Date(`${dateFrom}T00:00:00.000Z`) } : {}),
+      ...(dateTo ? { lte: new Date(`${dateTo}T23:59:59.999Z`) } : {}),
+    };
+  }
+
+  const [items, total] = await Promise.all([
+    prisma.item.findMany({
+      where,
+      include: {
+        category: { select: { name: true } },
+        images: { select: { imageUrl: true, mediaType: true, fileName: true } },
+      },
+      orderBy: { occurredAt: sort === 'oldest' ? 'asc' : 'desc' },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }),
+    prisma.item.count({ where }),
+  ]);
+
+  res.json({
+    items: items.map((item) => ({
     id: item.id,
     title: item.title,
     description: item.description,
@@ -41,7 +127,18 @@ itemsRouter.get('/', async (_req, res) => {
     occurredAt: item.occurredAt.toISOString(),
     createdAt: item.createdAt.toISOString(),
     imageUrl: item.images[0]?.imageUrl,
-  })));
+    mediaType: item.images[0]?.mediaType === ItemMediaType.VIDEO ? 'VIDEO' : 'IMAGE',
+    media: item.images.map((entry) => ({
+      url: entry.imageUrl,
+      type: entry.mediaType === ItemMediaType.VIDEO ? 'VIDEO' : 'IMAGE',
+      fileName: entry.fileName,
+    })),
+    })),
+    page,
+    pageSize,
+    total,
+    totalPages: Math.max(1, Math.ceil(total / pageSize)),
+  });
 });
 
 itemsRouter.get('/mine', requireAuth, async (req, res) => {
@@ -53,7 +150,7 @@ itemsRouter.get('/mine', requireAuth, async (req, res) => {
     where: { reporterId: req.authUserId },
     include: {
       category: { select: { name: true } },
-      images: { select: { imageUrl: true }, take: 1 },
+      images: { select: { imageUrl: true, mediaType: true, fileName: true } },
       matchedFoundItem: { select: { title: true } },
     },
     orderBy: { createdAt: 'desc' },
@@ -74,6 +171,14 @@ itemsRouter.get('/mine', requireAuth, async (req, res) => {
     matchedFoundItemTitle: item.matchedFoundItem?.title,
     resolutionLocation: item.resolutionLocation,
     imageUrl: item.images[0]?.imageUrl,
+    contactEmail: item.contactEmail,
+    custodyLocation: item.custodyLocation,
+    mediaType: item.images[0]?.mediaType === ItemMediaType.VIDEO ? 'VIDEO' : 'IMAGE',
+    media: item.images.map((entry) => ({
+      url: entry.imageUrl,
+      type: entry.mediaType === ItemMediaType.VIDEO ? 'VIDEO' : 'IMAGE',
+      fileName: entry.fileName,
+    })),
   })));
 });
 
@@ -163,6 +268,95 @@ itemsRouter.post('/:itemId/matches', requireAuth, async (req, res) => {
   });
 });
 
+itemsRouter.patch('/:itemId', requireAuth, async (req, res) => {
+  if (!req.authUserId) {
+    res.status(401).json({ message: 'Please log in to continue.' });
+    return;
+  }
+  if (!isRecord(req.body) || typeof req.params.itemId !== 'string') {
+    res.status(400).json({ message: 'Please complete the item report.' });
+    return;
+  }
+
+  const itemId = req.params.itemId;
+  const existing = await prisma.item.findUnique({
+    where: { id: itemId },
+    select: { reporterId: true, reviewStatus: true },
+  });
+  if (!existing || existing.reporterId !== req.authUserId) {
+    res.status(404).json({ message: 'That report could not be found.' });
+    return;
+  }
+  if (existing.reviewStatus !== ItemReviewStatus.PENDING) {
+    res.status(409).json({ message: 'Only reports awaiting review can be edited.' });
+    return;
+  }
+
+  const { type, title, category, location, occurredAt, description, privateDetails, contactEmail, custodyLocation } = req.body;
+  const date = typeof occurredAt === 'string' ? new Date(`${occurredAt}T12:00:00.000Z`) : null;
+  const validDate = date !== null && !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === occurredAt;
+  const validContact = contactEmail === undefined || contactEmail === '' || (typeof contactEmail === 'string' && contactEmail.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail));
+  const validCustody = type !== 'Found' || isText(custodyLocation, 1, 120);
+  const media = getValidatedMedia(req.body);
+
+  if (
+    (type !== 'Lost' && type !== 'Found')
+    || !isText(title, 1, 100)
+    || !isText(category, 1, 60)
+    || !isText(location, 1, 120)
+    || !validDate
+    || !isText(description, 8, 600)
+    || (privateDetails !== undefined && !isText(privateDetails, 0, 1000))
+    || (type === 'Found' && !isText(privateDetails, 5, 1000))
+    || !validContact
+    || !validCustody
+    || media === null
+  ) {
+    res.status(400).json({ message: 'Please check the item details or attached media and try again.' });
+    return;
+  }
+  if (!date) {
+    res.status(400).json({ message: 'Please provide a valid date for the report.' });
+    return;
+  }
+
+  await prisma.$transaction(async (transaction) => {
+    await transaction.item.update({
+      where: { id: itemId },
+      data: {
+        title: title.trim(),
+        description: description.trim(),
+        hiddenDetail: typeof privateDetails === 'string' ? privateDetails.trim() : '',
+        building: location.trim(),
+        reportType: type === 'Found' ? ReportType.FOUND : ReportType.LOST,
+        occurredAt: date,
+        contactEmail: typeof contactEmail === 'string' && contactEmail.trim() ? contactEmail.trim() : null,
+        custodyLocation: type === 'Found' && typeof custodyLocation === 'string' ? custodyLocation.trim() : null,
+        category: {
+          connectOrCreate: {
+            where: { name: category.trim() },
+            create: { name: category.trim() },
+          },
+        },
+      },
+    });
+    if (req.body.media !== undefined) {
+      await transaction.itemImage.deleteMany({ where: { itemId } });
+      if (media.length > 0) {
+        await transaction.itemImage.createMany({
+          data: media.map((entry) => ({
+            itemId,
+            imageUrl: entry.dataUrl,
+            mediaType: entry.mediaType,
+            fileName: entry.fileName,
+          })),
+        });
+      }
+    }
+  });
+  res.json({ id: itemId, message: 'Report updated.' });
+});
+
 itemsRouter.delete('/:itemId', requireAuth, async (req, res) => {
   if (!req.authUserId) {
     res.status(401).json({ message: 'Please log in to continue.' });
@@ -211,7 +405,8 @@ itemsRouter.post('/', requireAuth, async (req, res) => {
     return;
   }
 
-  const { type, title, category, location, occurredAt, description, privateDetails, contactEmail, custodyLocation, imageDataUrl } = req.body;
+  const { type, title, category, location, occurredAt, description, privateDetails, contactEmail, custodyLocation } = req.body;
+  const media = getValidatedMedia(req.body);
   const date = typeof occurredAt === 'string' ? new Date(`${occurredAt}T12:00:00.000Z`) : null;
   const validDate = date !== null
     && !Number.isNaN(date.getTime())
@@ -232,11 +427,7 @@ itemsRouter.post('/', requireAuth, async (req, res) => {
     || (type === 'Found' && !isText(privateDetails, 5, 1000))
     || !validContact
     || !validCustody
-    || (imageDataUrl !== undefined && (
-      typeof imageDataUrl !== 'string'
-      || imageDataUrl.length > 1_400_000
-      || !imageDataUrlPattern.test(imageDataUrl)
-    ))
+    || media === null
   ) {
     res.status(400).json({ message: 'Please check the item details and try again.' });
     return;
@@ -264,11 +455,17 @@ itemsRouter.post('/', requireAuth, async (req, res) => {
           create: { name: category.trim() },
         },
       },
-      images: imageDataUrl ? { create: { imageUrl: imageDataUrl } } : undefined,
+      images: media && media.length > 0 ? {
+        create: media.map((entry) => ({
+          imageUrl: entry.dataUrl,
+          mediaType: entry.mediaType,
+          fileName: entry.fileName,
+        })),
+      } : undefined,
     },
     include: {
       category: { select: { name: true } },
-      images: { select: { imageUrl: true }, take: 1 },
+      images: { select: { imageUrl: true, mediaType: true, fileName: true } },
     },
   });
 
