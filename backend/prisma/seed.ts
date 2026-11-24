@@ -1,7 +1,16 @@
-import { PrismaClient, ReportType, UserRole } from '@prisma/client';
+import 'dotenv/config';
+import { PrismaClient } from '../src/generated/prisma/client';
+import { ReportType, UserRole } from '../src/generated/prisma/enums';
+import { PrismaPg } from '@prisma/adapter-pg';
 import bcrypt from 'bcryptjs';
 
-const prisma = new PrismaClient();
+const databaseUrl = process.env.DATABASE_URL;
+if (!databaseUrl) {
+  throw new Error('DATABASE_URL must be configured before seeding.');
+}
+const prisma = new PrismaClient({
+  adapter: new PrismaPg({ connectionString: databaseUrl }),
+});
 
 const categories = ['tumblers', 'cellphones', 'IDs', 'wallets', 'bags', 'keys', 'others'];
 

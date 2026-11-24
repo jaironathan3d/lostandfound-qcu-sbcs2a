@@ -1,0 +1,134 @@
+.vault-section {
+  margin-top: 30px;
+}
+
+.vault-section > .admin-claims-heading {
+  align-items: flex-end;
+  margin-bottom: 16px;
+}
+
+.vault-section > .admin-claims-heading p,
+.vault-section > .admin-claims-heading span {
+  color: #64746b;
+  font-size: 13px;
+}
+
+.vault-candidate-list,
+.vault-entry-list {
+  display: grid;
+  gap: 14px;
+}
+
+.vault-candidate,
+.vault-entry {
+  display: grid;
+  gap: 15px;
+  padding: 20px;
+  border: 1px solid #e0e8e1;
+  border-radius: 15px;
+  background: #fff;
+}
+
+.vault-candidate {
+  grid-template-columns: minmax(180px, 1fr) minmax(220px, 1fr) auto;
+  align-items: end;
+}
+
+.vault-candidate h3,
+.vault-entry h3 {
+  margin: 8px 0 4px;
+}
+
+.vault-candidate p,
+.vault-entry header p,
+.vault-entry__custody,
+.vault-entry__waiting,
+.vault-entry header time {
+  color: #64746b;
+  font-size: 13px;
+}
+
+.vault-candidate label,
+.vault-handover-form label {
+  display: grid;
+  gap: 7px;
+  color: #52665c;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.vault-candidate input,
+.vault-handover-form input,
+.vault-handover-form select {
+  width: 100%;
+  min-width: 0;
+  padding: 10px 11px;
+  border: 1px solid #dce5de;
+  border-radius: 9px;
+  background: #fff;
+  color: #23332d;
+  font: inherit;
+}
+
+.vault-candidate > button,
+.vault-handover-form > button {
+  min-height: 40px;
+  padding: 9px 13px;
+  border: 0;
+  border-radius: 9px;
+  background: #356b4d;
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+}
+
+.vault-candidate > button:disabled,
+.vault-handover-form > button:disabled {
+  cursor: wait;
+  opacity: .6;
+}
+
+.vault-entry header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.vault-entry__custody {
+  margin: 0;
+}
+
+.vault-entry__waiting,
+.vault-entry__handover {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 9px;
+  background: #f3f6f3;
+}
+
+.vault-entry__handover p {
+  margin: 0;
+}
+
+.vault-handover-form {
+  display: grid;
+  grid-template-columns: minmax(200px, 1fr) minmax(200px, 1fr) auto;
+  align-items: end;
+  gap: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #e6ece7;
+}
+
+@media (max-width: 800px) {
+  .vault-candidate,
+  .vault-handover-form {
+    grid-template-columns: 1fr;
+  }
+
+  .vault-entry header {
+    flex-direction: column;
+    gap: 7px;
+  }
+}

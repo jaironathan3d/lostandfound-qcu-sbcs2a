@@ -14,23 +14,21 @@
     "dev:backend": "npm run dev --workspace backend"
   },
   "devDependencies": {
-    "@typescript-eslint/eslint-plugin": "^7.0.0",
-    "@typescript-eslint/parser": "^6.15.0",
+    "@typescript-eslint/eslint-plugin": "^8.74.0",
+    "@typescript-eslint/parser": "^8.74.0",
     "eslint": "^9.39.5",
     "eslint-config-prettier": "^10.1.8",
     "prettier": "^3.9.10",
     "typescript": "^6.0.3"
   },
+  "overrides": {
+    "effect": "3.22.1"
+  },
   "allowScripts": {
-    "@prisma/client@6.19.3": true,
-    "prisma@6.19.3": true,
-    "@prisma/engines@6.19.3": true,
     "esbuild@0.28.2": true,
     "@prisma/client@7.10.1": true,
+    "@prisma/engines@7.10.1": true,
+    "prisma@7.10.1": true,
     "prisma@8.0.0-rc.30": true
-  },
-  "dependencies": {
-    "@prisma/client": "^6.19.3",
-    "prisma": "^6.19.3"
   }
 }

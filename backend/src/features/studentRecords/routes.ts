@@ -1,6 +1,5 @@
 import { Router } from 'express';
-import { Prisma, UserRole } from '@prisma/client';
-import { prisma } from '../../lib/prisma';
+import { Prisma, UserRole, prisma } from '../../lib/prisma';
 import { requireAuth } from '../../middlewares/requireAuth';
 import { requireRoles } from '../../middlewares/requireRoles';
 
@@ -101,9 +100,9 @@ studentRecordsRouter.post('/import', ...requireStudentRecordAdmin, async (req, r
     return;
   }
   const header = lines.shift()!.split(',').map((value) => value.trim().toLowerCase());
-  const expected = ['studentnumber', 'fullname', 'course', 'yearlevel', 'universityemail', 'classschedule'];
+  const expected = ['studentnumber', 'fullname', 'course', 'yearlevel'];
   if (expected.some((name) => !header.includes(name))) {
-    res.status(400).json({ message: 'CSV headers must include studentNumber, fullName, course, yearLevel, universityEmail, and classSchedule.' });
+    res.status(400).json({ message: 'CSV headers must include studentNumber, fullName, course, and yearLevel.' });
     return;
   }
   const index = (name: string) => header.indexOf(name);
@@ -111,15 +110,23 @@ studentRecordsRouter.post('/import', ...requireStudentRecordAdmin, async (req, r
   let skipped = 0;
   for (const line of lines) {
     const values = line.split(',').map((value) => value.trim());
+    const universityEmailIndex = index('universityemail');
+    const classScheduleIndex = index('classschedule');
     const record = {
       studentNumber: values[index('studentnumber')],
       fullName: values[index('fullname')],
       course: values[index('course')],
       yearLevel: values[index('yearlevel')],
-      universityEmail: values[index('universityemail')],
-      classSchedule: values[index('classschedule')],
+      universityEmail: universityEmailIndex >= 0 ? values[universityEmailIndex] : '',
+      classSchedule: classScheduleIndex >= 0 ? values[classScheduleIndex] : '',
     };
-    if (!record.studentNumber || !record.fullName || !record.course || !record.yearLevel || !record.universityEmail || !record.classSchedule) {
+    if (
+      !/^\d{2}-\d{4}$/.test(record.studentNumber)
+      || !isText(record.fullName, 2, 100)
+      || !isText(record.course, 2, 100)
+      || !isText(record.yearLevel, 1, 30)
+      || (record.universityEmail !== '' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(record.universityEmail))
+    ) {
       skipped += 1;
       continue;
     }
@@ -130,12 +137,16 @@ studentRecordsRouter.post('/import', ...requireStudentRecordAdmin, async (req, r
           fullName: record.fullName,
           course: record.course,
           yearLevel: record.yearLevel,
-          universityEmail: record.universityEmail.toLowerCase(),
-          classSchedule: record.classSchedule,
+          universityEmail: record.universityEmail ? record.universityEmail.toLowerCase() : null,
+          classSchedule: record.classSchedule || null,
         },
         create: {
-          ...record,
-          universityEmail: record.universityEmail.toLowerCase(),
+          studentNumber: record.studentNumber,
+          fullName: record.fullName,
+          course: record.course,
+          yearLevel: record.yearLevel,
+          universityEmail: record.universityEmail ? record.universityEmail.toLowerCase() : null,
+          classSchedule: record.classSchedule || null,
           isActive: true,
         },
       });

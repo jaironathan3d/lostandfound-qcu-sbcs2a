@@ -4,30 +4,37 @@
   "private": true,
   "main": "dist/server.js",
   "scripts": {
+    "predev": "npm run prisma:generate",
     "dev": "tsx watch src/server.ts",
+    "prebuild": "npm run prisma:generate",
     "build": "tsc -p tsconfig.json",
+    "prestart": "npm run prisma:generate",
     "start": "node dist/server.js",
     "lint": "eslint src --ext .ts",
-    "test": "echo \"No backend tests yet\"",
-    "prisma:migrate": "prisma migrate dev",
+    "pretest": "npm run prisma:generate",
+    "test": "tsx --test src/test/*.test.ts",
+    "prisma:migrate": "prisma migrate dev && npm run prisma:generate",
     "prisma:generate": "prisma generate",
-    "prisma:seed": "tsx prisma/seed.ts"
+    "prisma:seed": "prisma db seed"
   },
   "dependencies": {
-    "@prisma/client": "^6.19.3",
+    "@prisma/adapter-pg": "^7.10.1",
+    "@prisma/client": "^7.10.1",
     "bcryptjs": "^3.0.2",
     "cors": "^2.8.5",
     "dotenv": "^18.0.9",
     "eslint": "9.39.5",
     "express": "^5.3.0",
-    "jsonwebtoken": "^9.0.2"
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^2.5.0"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/jsonwebtoken": "^9.0.10",
+    "@types/multer": "^2.3.0",
     "@types/node": "^26.6.5",
-    "prisma": "^6.19.3",
+    "prisma": "^7.10.1",
     "tsx": "^4.23.15"
   }
 }

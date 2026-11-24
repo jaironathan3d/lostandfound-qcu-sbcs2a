@@ -251,6 +251,20 @@
   object-fit: cover;
 }
 
+.admin-evidence .admin-claim-document {
+  min-width: 180px;
+  max-width: 260px;
+  padding: 12px;
+  border: 1px solid #dce5de;
+  border-radius: 10px;
+  background: #f7faf7;
+  overflow-wrap: anywhere;
+}
+
+.admin-claim-document strong {
+  color: #23392d;
+}
+
 .admin-claim__actions {
   display: flex;
   align-items: center;
@@ -346,6 +360,16 @@
 
   .admin-summary {
     gap: 8px;
+  }
+
+  .admin-view-links {
+    max-width: 100%;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+  }
+
+  .admin-view-link {
+    flex: 0 0 auto;
   }
 
   .admin-summary__card {

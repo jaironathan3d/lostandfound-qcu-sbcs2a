@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import {
   ClaimStatus,
+  ConversationReportStatus,
   ItemReviewStatus,
   ItemStatus,
   LostItemStatus,
@@ -8,10 +9,14 @@ import {
   Prisma,
   ReportType,
   UserRole,
-} from '@prisma/client';
-import { prisma } from '../../lib/prisma';
+  prisma,
+} from '../../lib/prisma';
 import { requireAuth } from '../../middlewares/requireAuth';
 import { requireRoles } from '../../middlewares/requireRoles';
+import { getItemMediaAccessPath } from '../../lib/itemMedia';
+import { getClaimDocumentAccessPath, removeStoredClaimDocuments } from '../../lib/claimDocuments';
+import { createNotification } from '../../lib/createNotification';
+import { createVaultReferenceCode } from '../../lib/vaultReferenceCode';
 
 export const adminRouter = Router();
 
@@ -95,6 +100,132 @@ adminRouter.delete('/categories/:categoryId', ...requireAdmin, async (req, res) 
   res.status(204).end();
 });
 
+adminRouter.get('/conversation-reports', ...requireAdmin, async (req, res) => {
+  const statusFilter = req.query.status;
+  if (
+    statusFilter !== undefined
+    && (typeof statusFilter !== 'string' || !Object.values(ConversationReportStatus).includes(statusFilter as ConversationReportStatus))
+  ) {
+    res.status(400).json({ message: 'Choose a valid conversation report status.' });
+    return;
+  }
+
+  const where = statusFilter ? { status: statusFilter as ConversationReportStatus } : {};
+  const [reports, groupedCounts] = await Promise.all([
+    prisma.conversationReport.findMany({
+      where,
+      include: {
+        reporter: { select: { id: true, fullName: true, email: true } },
+        reviewedBy: { select: { fullName: true } },
+        conversation: {
+          include: {
+            item: { select: { id: true, title: true } },
+            poster: { select: { id: true, fullName: true } },
+            participant: { select: { id: true, fullName: true } },
+            messages: {
+              orderBy: { createdAt: 'desc' },
+              take: 100,
+              include: { sender: { select: { id: true, fullName: true } } },
+            },
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    }),
+    prisma.conversationReport.groupBy({ by: ['status'], _count: { _all: true } }),
+  ]);
+  const counts = { PENDING: 0, REVIEWED: 0, DISMISSED: 0 };
+  for (const entry of groupedCounts) counts[entry.status] = entry._count._all;
+
+  res.json({
+    counts,
+    reports: reports.map((report) => ({
+      id: report.id,
+      reason: report.reason,
+      details: report.details,
+      status: report.status,
+      createdAt: report.createdAt.toISOString(),
+      reviewedAt: report.reviewedAt?.toISOString() ?? null,
+      reviewedByName: report.reviewedBy?.fullName ?? null,
+      reporter: report.reporter,
+      conversation: {
+        id: report.conversation.id,
+        item: report.conversation.item,
+        participants: [report.conversation.poster, report.conversation.participant],
+        messages: report.conversation.messages.slice().reverse().map((message) => ({
+          id: message.id,
+          sender: message.sender,
+          content: message.content,
+          createdAt: message.createdAt.toISOString(),
+        })),
+      },
+    })),
+  });
+});
+
+adminRouter.patch('/conversation-reports/:reportId', ...requireAdmin, async (req, res) => {
+  if (!req.authUserId) {
+    res.status(401).json({ message: 'Please log in to continue.' });
+    return;
+  }
+  if (!isRecord(req.body) || (req.body.decision !== 'reviewed' && req.body.decision !== 'dismiss')) {
+    res.status(400).json({ message: 'Choose whether to mark this report reviewed or dismiss it.' });
+    return;
+  }
+  const reportId = req.params.reportId;
+  if (typeof reportId !== 'string') {
+    res.status(400).json({ message: 'A valid conversation report ID is required.' });
+    return;
+  }
+
+  const status = req.body.decision === 'reviewed'
+    ? ConversationReportStatus.REVIEWED
+    : ConversationReportStatus.DISMISSED;
+  const result = await prisma.$transaction(async (transaction) => {
+    const report = await transaction.conversationReport.findUnique({
+      where: { id: reportId },
+      select: { id: true, reporterId: true, conversationId: true, status: true },
+    });
+    if (!report) return 'not-found' as const;
+    if (report.status !== ConversationReportStatus.PENDING) return 'conflict' as const;
+
+    const changed = await transaction.conversationReport.updateMany({
+      where: { id: report.id, status: ConversationReportStatus.PENDING },
+      data: { status, reviewedById: req.authUserId!, reviewedAt: new Date() },
+    });
+    if (changed.count !== 1) return 'conflict' as const;
+    await transaction.auditLog.create({
+      data: {
+        userId: req.authUserId!,
+        action: status === ConversationReportStatus.REVIEWED
+          ? 'CONVERSATION_REPORT_REVIEWED'
+          : 'CONVERSATION_REPORT_DISMISSED',
+        entity: 'ConversationReport',
+        entityId: report.id,
+      },
+    });
+    await createNotification(
+      transaction,
+      report.reporterId,
+      status === ConversationReportStatus.REVIEWED
+        ? 'Your conversation report has been reviewed.'
+        : 'Your conversation report was dismissed after review.',
+      `/messages?conversation=${report.conversationId}`,
+    );
+    return 'updated' as const;
+  });
+
+  if (result === 'not-found') {
+    res.status(404).json({ message: 'That conversation report could not be found.' });
+    return;
+  }
+  if (result === 'conflict') {
+    res.status(409).json({ message: 'That conversation report is no longer pending review.' });
+    return;
+  }
+  res.json({ id: reportId, status });
+});
+
 adminRouter.get('/items', ...requireAdmin, async (req, res) => {
   const statusFilter = req.query.status;
   if (
@@ -112,7 +243,7 @@ adminRouter.get('/items', ...requireAdmin, async (req, res) => {
       include: {
         category: { select: { name: true } },
         reporter: { select: { id: true, fullName: true, email: true } },
-        images: { select: { imageUrl: true }, take: 1 },
+        images: { select: { id: true, imageUrl: true }, take: 1 },
         matchedFoundItem: { select: { title: true } },
       },
       orderBy: { createdAt: 'desc' },
@@ -142,7 +273,9 @@ adminRouter.get('/items', ...requireAdmin, async (req, res) => {
       contactEmail: item.contactEmail,
       custodyLocation: item.custodyLocation,
       reporter: item.reporter,
-      imageUrl: item.images[0]?.imageUrl,
+      imageUrl: item.images[0]
+        ? getItemMediaAccessPath(item.id, item.images[0], item.reviewStatus, req.authUserId)
+        : undefined,
     })),
   });
 });
@@ -165,6 +298,11 @@ adminRouter.patch('/items/:itemId', ...requireAdmin, async (req, res) => {
   const approved = req.body.decision === 'approve';
   const reviewStatus = approved ? ItemReviewStatus.APPROVED : ItemReviewStatus.REJECTED;
   const result = await prisma.$transaction(async (transaction) => {
+    const item = await transaction.item.findUnique({
+      where: { id: itemId },
+      select: { title: true, reporterId: true },
+    });
+    if (!item) return 'unavailable' as const;
     const changed = await transaction.item.updateMany({
       where: { id: itemId, reviewStatus: ItemReviewStatus.PENDING },
       data: { reviewStatus },
@@ -178,6 +316,12 @@ adminRouter.patch('/items/:itemId', ...requireAdmin, async (req, res) => {
         entityId: itemId,
       },
     });
+    await createNotification(
+      transaction,
+      item.reporterId,
+      `Your item report "${item.title}" was ${approved ? 'approved' : 'rejected'}.`,
+      '/my-reports',
+    );
     return 'updated' as const;
   });
 
@@ -207,6 +351,10 @@ adminRouter.patch('/items/:itemId/resolution', ...requireAdmin, async (req, res)
   }
 
   const markingFound = req.body.action === 'mark-found';
+  if (!markingFound) {
+    res.status(409).json({ message: 'Record physical returns from the vault dashboard so the handover is audited.' });
+    return;
+  }
   const resolutionLocation = req.body.resolutionLocation;
   const foundItemId = typeof req.body.foundItemId === 'string' && req.body.foundItemId.trim()
     ? req.body.foundItemId.trim()
@@ -227,37 +375,46 @@ adminRouter.patch('/items/:itemId/resolution', ...requireAdmin, async (req, res)
           reportType: ReportType.LOST,
           reviewStatus: ItemReviewStatus.APPROVED,
           status: ItemStatus.REPORTED,
-          lostItemStatus: markingFound ? LostItemStatus.OPEN : LostItemStatus.FOUND,
+          lostItemStatus: LostItemStatus.OPEN,
         },
         select: { id: true, title: true, reporterId: true, matchedFoundItemId: true },
       });
       if (!lostItem) return { kind: 'unavailable' as const };
 
-      let foundItem: { id: string; title: string; building: string; custodyLocation: string | null } | null = null;
+      let foundItem: {
+        id: string;
+        status: ItemStatus;
+        vaultEntry: { id: string; referenceCode: string } | null;
+      } | null = null;
       if (markingFound && foundItemId) {
         foundItem = await transaction.item.findFirst({
           where: {
             id: foundItemId,
             reportType: ReportType.FOUND,
             reviewStatus: ItemReviewStatus.APPROVED,
-            status: ItemStatus.REPORTED,
+            status: { in: [ItemStatus.REPORTED, ItemStatus.IN_VAULT] },
             matchedLostReport: { is: null },
           },
-          select: { id: true, title: true, building: true, custodyLocation: true },
+          select: {
+            id: true,
+            status: true,
+            vaultEntry: { select: { id: true, referenceCode: true } },
+          },
         });
         if (!foundItem) return { kind: 'invalid-found-item' as const };
       }
 
-      const nextStatus = markingFound ? LostItemStatus.FOUND : LostItemStatus.RETURNED;
-      const location = markingFound ? (resolutionLocation as string).trim() : undefined;
+      const nextStatus = LostItemStatus.FOUND;
+      const location = (resolutionLocation as string).trim();
       const update = await transaction.item.updateMany({
         where: {
           id: lostItem.id,
           reviewStatus: ItemReviewStatus.APPROVED,
           status: ItemStatus.REPORTED,
-          lostItemStatus: markingFound ? LostItemStatus.OPEN : LostItemStatus.FOUND,
+          lostItemStatus: LostItemStatus.OPEN,
         },
         data: {
+          ...(!foundItem ? { status: ItemStatus.IN_VAULT, custodyLocation: location } : {}),
           lostItemStatus: nextStatus,
           resolutionLocation: location,
           matchedFoundItemId: foundItem?.id,
@@ -271,9 +428,9 @@ adminRouter.patch('/items/:itemId/resolution', ...requireAdmin, async (req, res)
             id: foundItem.id,
             reportType: ReportType.FOUND,
             reviewStatus: ItemReviewStatus.APPROVED,
-            status: ItemStatus.REPORTED,
+            status: foundItem.status,
           },
-          data: { status: ItemStatus.VERIFIED },
+          data: { status: ItemStatus.VERIFIED, custodyLocation: location },
         });
         if (foundUpdate.count !== 1) throw new ItemMatchConflict();
 
@@ -286,39 +443,43 @@ adminRouter.patch('/items/:itemId/resolution', ...requireAdmin, async (req, res)
             status: ClaimStatus.VERIFIED,
           },
         });
-      }
-      if (!markingFound && lostItem.matchedFoundItemId) {
-        const foundUpdate = await transaction.item.updateMany({
-          where: {
-            id: lostItem.matchedFoundItemId,
-            reportType: ReportType.FOUND,
-            status: ItemStatus.VERIFIED,
+        if (!foundItem.vaultEntry) {
+          await transaction.vaultEntry.create({
+            data: {
+              itemId: foundItem.id,
+              guardId: req.authUserId!,
+              referenceCode: createVaultReferenceCode(),
+            },
+          });
+        }
+      } else {
+        await transaction.vaultEntry.create({
+          data: {
+            itemId: lostItem.id,
+            guardId: req.authUserId!,
+            referenceCode: createVaultReferenceCode(),
           },
-          data: { status: ItemStatus.RETURNED },
         });
-        if (foundUpdate.count !== 1) throw new ItemMatchConflict();
       }
 
       await transaction.auditLog.create({
         data: {
           userId: req.authUserId!,
-          action: markingFound ? 'LOST_ITEM_MARKED_FOUND' : 'LOST_ITEM_MARKED_RETURNED',
+          action: 'LOST_ITEM_MARKED_FOUND',
           entity: 'Item',
           entityId: lostItem.id,
         },
       });
       if (markingFound) {
-        await transaction.notification.create({
-          data: {
-            userId: lostItem.reporterId,
-            message: `Your lost-item report “${lostItem.title}” was marked found. ${location}`,
-          },
+        const vaultEntry = await transaction.vaultEntry.findUniqueOrThrow({
+          where: { itemId: foundItem?.id ?? lostItem.id },
+          select: { referenceCode: true },
         });
-      } else {
         await transaction.notification.create({
           data: {
             userId: lostItem.reporterId,
-            message: `Your lost-item report “${lostItem.title}” was marked returned.`,
+            message: `Your lost-item report “${lostItem.title}” was marked found at ${location}. Your handover code is ${vaultEntry.referenceCode}.`,
+            href: '/my-claims',
           },
         });
       }
@@ -362,14 +523,14 @@ adminRouter.get('/matches', ...requireAdmin, async (req, res) => {
           include: {
             category: { select: { name: true } },
             reporter: { select: { fullName: true, email: true } },
-            images: { select: { imageUrl: true }, take: 1 },
+            images: { select: { id: true, imageUrl: true }, take: 1 },
           },
         },
         foundItem: {
           include: {
             category: { select: { name: true } },
             reporter: { select: { fullName: true, email: true } },
-            images: { select: { imageUrl: true }, take: 1 },
+            images: { select: { id: true, imageUrl: true }, take: 1 },
           },
         },
       },
@@ -396,7 +557,14 @@ adminRouter.get('/matches', ...requireAdmin, async (req, res) => {
         category: suggestion.lostItem.category?.name ?? 'Other',
         location: suggestion.lostItem.building,
         reporter: suggestion.lostItem.reporter,
-        imageUrl: suggestion.lostItem.images[0]?.imageUrl,
+        imageUrl: suggestion.lostItem.images[0]
+          ? getItemMediaAccessPath(
+            suggestion.lostItem.id,
+            suggestion.lostItem.images[0],
+            suggestion.lostItem.reviewStatus,
+            req.authUserId,
+          )
+          : undefined,
       },
       foundItem: suggestion.foundItem
         ? {
@@ -408,7 +576,14 @@ adminRouter.get('/matches', ...requireAdmin, async (req, res) => {
           location: suggestion.foundItem.building,
           custodyLocation: suggestion.foundItem.custodyLocation,
           reporter: suggestion.foundItem.reporter,
-          imageUrl: suggestion.foundItem.images[0]?.imageUrl,
+          imageUrl: suggestion.foundItem.images[0]
+            ? getItemMediaAccessPath(
+              suggestion.foundItem.id,
+              suggestion.foundItem.images[0],
+              suggestion.foundItem.reviewStatus,
+              req.authUserId,
+            )
+            : undefined,
         }
         : null,
     })),
@@ -443,7 +618,18 @@ adminRouter.patch('/matches/:matchId', ...requireAdmin, async (req, res) => {
         where: { id: matchId },
         include: {
           lostItem: { select: { id: true, title: true, reporterId: true, lostItemStatus: true } },
-          foundItem: { select: { id: true, title: true, building: true, custodyLocation: true, status: true, reviewStatus: true, reportType: true } },
+          foundItem: {
+            select: {
+              id: true,
+              title: true,
+              building: true,
+              custodyLocation: true,
+              status: true,
+              reviewStatus: true,
+              reportType: true,
+              vaultEntry: { select: { referenceCode: true } },
+            },
+          },
         },
       });
       if (!suggestion) return { kind: 'not-found' as const };
@@ -475,7 +661,7 @@ adminRouter.patch('/matches/:matchId', ...requireAdmin, async (req, res) => {
         if (
           suggestion.foundItem.reportType !== ReportType.FOUND
           || suggestion.foundItem.reviewStatus !== ItemReviewStatus.APPROVED
-          || suggestion.foundItem.status !== ItemStatus.REPORTED
+          || (suggestion.foundItem.status !== ItemStatus.REPORTED && suggestion.foundItem.status !== ItemStatus.IN_VAULT)
         ) throw new ItemMatchConflict();
 
         const foundUpdate = await transaction.item.updateMany({
@@ -483,7 +669,7 @@ adminRouter.patch('/matches/:matchId', ...requireAdmin, async (req, res) => {
             id: suggestion.foundItem.id,
             reportType: ReportType.FOUND,
             reviewStatus: ItemReviewStatus.APPROVED,
-            status: ItemStatus.REPORTED,
+            status: suggestion.foundItem.status,
           },
           data: { status: ItemStatus.VERIFIED },
         });
@@ -520,10 +706,14 @@ adminRouter.patch('/matches/:matchId', ...requireAdmin, async (req, res) => {
         },
       });
       if (approve) {
+        const code = suggestion.foundItem?.vaultEntry?.referenceCode;
         await transaction.notification.create({
           data: {
             userId: suggestion.lostItem.reporterId,
-            message: `Your lost item “${suggestion.lostItem.title}” was confirmed found. Collection location: ${location}`,
+            message: code
+              ? `Your lost item “${suggestion.lostItem.title}” was confirmed found at ${location}. Your handover code is ${code}.`
+              : `Your lost item “${suggestion.lostItem.title}” was confirmed found. Collection location: ${location}`,
+            href: '/my-claims',
           },
         });
       }
@@ -572,10 +762,11 @@ adminRouter.get('/claims', ...requireAdmin, async (req, res) => {
           include: {
             category: { select: { name: true } },
             reporter: { select: { fullName: true, email: true } },
-            images: { select: { imageUrl: true }, take: 1 },
+            images: { select: { id: true, imageUrl: true }, take: 1 },
           },
         },
         proofImages: { select: { imageUrl: true } },
+        documents: { select: { id: true, documentType: true, fileName: true, storageKey: true } },
       },
       orderBy: { createdAt: 'desc' },
     }),
@@ -593,6 +784,14 @@ adminRouter.get('/claims', ...requireAdmin, async (req, res) => {
       ownershipDetails: claim.hiddenDetailAnswer,
       lastSeen: claim.lastSeen,
       proofImages: claim.proofImages.map((image) => image.imageUrl),
+      documents: claim.status === ClaimStatus.PENDING
+        ? claim.documents.map((document) => ({
+          id: document.id,
+          documentType: document.documentType,
+          fileName: document.fileName,
+          url: getClaimDocumentAccessPath(claim.id, document, req.authUserId!),
+        }))
+        : [],
       claimant: claim.claimer,
       item: {
         id: claim.item.id,
@@ -606,7 +805,14 @@ adminRouter.get('/claims', ...requireAdmin, async (req, res) => {
         contactEmail: claim.item.contactEmail,
         custodyLocation: claim.item.custodyLocation,
         reporter: claim.item.reporter,
-        imageUrl: claim.item.images[0]?.imageUrl,
+        imageUrl: claim.item.images[0]
+          ? getItemMediaAccessPath(
+            claim.item.id,
+            claim.item.images[0],
+            claim.item.reviewStatus,
+            req.authUserId,
+          )
+          : undefined,
       },
     })),
   });
@@ -634,14 +840,32 @@ adminRouter.patch('/claims/:claimId', ...requireAdmin, async (req, res) => {
     outcome = await prisma.$transaction(async (transaction) => {
       const claim = await transaction.claim.findUnique({
         where: { id: claimId },
-        select: { id: true, itemId: true, status: true },
+        select: {
+          id: true,
+          itemId: true,
+          status: true,
+          claimerId: true,
+          item: {
+            select: {
+              title: true,
+              custodyLocation: true,
+              vaultEntry: { select: { referenceCode: true, releasedAt: true } },
+            },
+          },
+        },
       });
       if (!claim) return 'not-found';
       if (claim.status !== ClaimStatus.PENDING) return 'conflict';
 
       const itemUpdate = await transaction.item.updateMany({
         where: { id: claim.itemId, status: ItemStatus.CLAIM_PENDING },
-        data: { status: approved ? ItemStatus.VERIFIED : ItemStatus.REPORTED },
+        data: {
+          status: approved
+            ? ItemStatus.VERIFIED
+            : claim.item.vaultEntry && !claim.item.vaultEntry.releasedAt
+              ? ItemStatus.IN_VAULT
+              : ItemStatus.REPORTED,
+        },
       });
       if (itemUpdate.count !== 1) throw new ClaimReviewConflict();
 
@@ -659,6 +883,14 @@ adminRouter.patch('/claims/:claimId', ...requireAdmin, async (req, res) => {
           entityId: claim.id,
         },
       });
+      await createNotification(
+        transaction,
+        claim.claimerId,
+        approved && claim.item.vaultEntry && !claim.item.vaultEntry.releasedAt
+          ? `Your claim for "${claim.item.title}" was approved. Collect it at ${claim.item.custodyLocation || 'the campus vault'} using handover code ${claim.item.vaultEntry.referenceCode}.`
+          : `Your claim for "${claim.item.title}" was ${approved ? 'approved' : 'rejected'}.`,
+        '/my-claims',
+      );
       return 'updated';
     });
   } catch (error) {
@@ -677,5 +909,11 @@ adminRouter.patch('/claims/:claimId', ...requireAdmin, async (req, res) => {
     res.status(409).json({ message: 'This claim has already been reviewed or its item is no longer pending.' });
     return;
   }
+  const supportingDocuments = await prisma.claimDocument.findMany({
+    where: { claimId },
+    select: { id: true, storageKey: true },
+  });
+  await removeStoredClaimDocuments(supportingDocuments);
+  await prisma.claimDocument.deleteMany({ where: { claimId } });
   res.json({ id: claimId, status: nextStatus });
 });

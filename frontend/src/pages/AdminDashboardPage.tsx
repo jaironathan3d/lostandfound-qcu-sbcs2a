@@ -1,10 +1,16 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { PublicFooter, PublicHeader } from '../components/PublicNavigation';
-import { apiRequest } from '../lib/apiClient';
+import { apiRequest, resolveApiUrl } from '../lib/apiClient';
 import './AdminDashboardPage.css';
 
 type ClaimStatus = 'PENDING' | 'VERIFIED' | 'REJECTED';
+type ClaimDocumentRecord = {
+  id: string;
+  documentType: 'COR' | 'CLASS_SCHEDULE';
+  fileName: string;
+  url: string;
+};
 type ClaimRecord = {
   id: string;
   status: ClaimStatus;
@@ -12,6 +18,7 @@ type ClaimRecord = {
   ownershipDetails: string;
   lastSeen: string;
   proofImages: string[];
+  documents: ClaimDocumentRecord[];
   claimant: { fullName: string; email: string };
   item: {
     id: string;
@@ -102,7 +109,7 @@ export const AdminDashboardPage = () => {
           <div>
             <p className="admin-eyebrow">QCU LOST &amp; FOUND · ADMIN</p>
             <h1>Claim review</h1>
-            <p>Compare the claimant’s private details with the report. An approval verifies ownership; it does not record a handover.</p>
+            <p>Compare the claimant’s private details with the report. Approval verifies ownership; record physical release separately in Vault &amp; handover.</p>
           </div>
           <Link to="/items">View public listings ↗</Link>
         </header>
@@ -110,6 +117,8 @@ export const AdminDashboardPage = () => {
           <Link className="admin-view-link admin-view-link--active" to="/admin-dashboard">Claim review</Link>
           <Link className="admin-view-link" to="/admin-dashboard/reports">Item report moderation</Link>
           <Link className="admin-view-link" to="/admin-dashboard/matches">Lost-item matches</Link>
+          <Link className="admin-view-link" to="/admin-dashboard/conversations">Conversation safety</Link>
+          <Link className="admin-view-link" to="/admin-dashboard/vault">Vault &amp; handover</Link>
           <Link className="admin-view-link" to="/admin-dashboard/students">Student records</Link>
         </nav>
 
@@ -180,10 +189,23 @@ export const AdminDashboardPage = () => {
                     </section>
                   </div>
 
-                  {(claim.item.imageUrl || claim.proofImages.length > 0) && (
+                  {(claim.item.imageUrl || claim.proofImages.length > 0 || claim.documents.length > 0) && (
                     <div className="admin-evidence">
-                      {claim.item.imageUrl && <a href={claim.item.imageUrl} target="_blank" rel="noreferrer"><img src={claim.item.imageUrl} alt="Reported item" /><span>Reported item photo</span></a>}
-                      {claim.proofImages.map((image, index) => <a href={image} target="_blank" rel="noreferrer" key={`${claim.id}-proof-${index}`}><img src={image} alt={`Claim evidence ${index + 1}`} /><span>Claim evidence {index + 1}</span></a>)}
+                      {claim.item.imageUrl && <a href={resolveApiUrl(claim.item.imageUrl)} target="_blank" rel="noreferrer"><img src={resolveApiUrl(claim.item.imageUrl)} alt="Reported item" /><span>Reported item photo</span></a>}
+                      {claim.proofImages.map((image, index) => <a href={resolveApiUrl(image)} target="_blank" rel="noreferrer" key={`${claim.id}-proof-${index}`}><img src={resolveApiUrl(image)} alt={`Claim evidence ${index + 1}`} /><span>Claim evidence {index + 1}</span></a>)}
+                      {claim.documents.map((document) => (
+                        <a
+                          className="admin-claim-document"
+                          href={resolveApiUrl(document.url)}
+                          key={document.id}
+                          rel="noreferrer"
+                          target="_blank"
+                        >
+                          <span>{document.documentType === 'COR' ? 'Certificate of Registration' : 'Class schedule'}</span>
+                          <strong>{document.fileName}</strong>
+                          <span>Download private document</span>
+                        </a>
+                      ))}
                     </div>
                   )}
 

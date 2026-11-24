@@ -200,7 +200,7 @@ const AuthPage = ({ mode }: AuthPageProps) => {
               </label>
             </>
           )}
-          {!isRegister && <div className="auth-remember"><label><input type="checkbox" /> Remember me</label><Link to="/forgot-password">Forgot password?</Link></div>}
+          {!isRegister && <div className="auth-remember"><Link to="/forgot-password">Forgot password?</Link></div>}
           {error && <p className="auth-error" role="alert">{error}</p>}
           <button className="auth-submit" type="submit" disabled={isSubmitting}>
           {isSubmitting ? 'Please wait…' : isRegister ? '→　Create account' : '→　Log in'}

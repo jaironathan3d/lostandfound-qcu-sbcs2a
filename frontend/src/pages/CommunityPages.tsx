@@ -1,11 +1,21 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { PublicFooter, PublicHeader } from '../components/PublicNavigation';
 import { useAuth } from '../lib/AuthContext';
-import { apiRequest } from '../lib/apiClient';
-import { readMediaAsDataUrl } from '../lib/readMediaAsDataUrl';
+import { apiRequest, resolveApiUrl } from '../lib/apiClient';
 import type { ItemStatus } from '../lib/itemData';
 import './CommunityPages.css';
+
+type ReportMedia = {
+  id: string;
+  url: string;
+  type: 'IMAGE' | 'VIDEO';
+  fileName: string | null;
+};
+
+type SelectedMedia = { file: File; previewUrl: string };
+const maxImageBytes = Number(import.meta.env.VITE_ITEM_IMAGE_MAX_BYTES || 10 * 1024 * 1024);
+const maxVideoBytes = Number(import.meta.env.VITE_ITEM_VIDEO_MAX_BYTES || 25 * 1024 * 1024);
 
 export const ReportItemPage = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -22,10 +32,10 @@ export const ReportItemPage = () => {
   const [date, setDate] = useState('');
   const [contact, setContact] = useState(defaultContact);
   const [custodyLocation, setCustodyLocation] = useState('');
-  const [photo, setPhoto] = useState<File | null>(null);
-  const [photoPreview, setPhotoPreview] = useState('');
-  const [video, setVideo] = useState<File | null>(null);
-  const [videoPreview, setVideoPreview] = useState('');
+  const [photos, setPhotos] = useState<SelectedMedia[]>([]);
+  const [videos, setVideos] = useState<SelectedMedia[]>([]);
+  const selectedMediaRef = useRef<SelectedMedia[]>([]);
+  const [existingMedia, setExistingMedia] = useState<ReportMedia[]>([]);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -46,6 +56,7 @@ export const ReportItemPage = () => {
       contactEmail: string | null;
       custodyLocation: string | null;
       reviewStatus: 'PENDING' | 'APPROVED' | 'REJECTED';
+      media: ReportMedia[];
     }>>('/items/mine')
       .then((reports) => {
         const report = reports.find((entry) => entry.id === editId);
@@ -63,15 +74,19 @@ export const ReportItemPage = () => {
         setDate(report.occurredAt.slice(0, 10));
         setContact(report.contactEmail ?? '');
         setCustodyLocation(report.custodyLocation ?? '');
+        setExistingMedia(report.media);
       })
       .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : 'The report could not be loaded.'));
     return () => { active = false; };
   }, [searchParams]);
 
   useEffect(() => {
-    if (!photoPreview) return;
-    return () => URL.revokeObjectURL(photoPreview);
-  }, [photoPreview]);
+    selectedMediaRef.current = [...photos, ...videos];
+  }, [photos, videos]);
+
+  useEffect(() => () => {
+    selectedMediaRef.current.forEach((entry) => URL.revokeObjectURL(entry.previewUrl));
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -83,53 +98,43 @@ export const ReportItemPage = () => {
       .catch(() => undefined);
     return () => { active = false; };
   }, []);
-  useEffect(() => {
-    if (!videoPreview) return;
-    return () => URL.revokeObjectURL(videoPreview);
-  }, [videoPreview]);
-
   const changeType = (nextType: ItemStatus) => {
     setType(nextType);
-    setSearchParams({ type: nextType.toLowerCase() });
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      next.set('type', nextType.toLowerCase());
+      return next;
+    });
     setSuccess(false);
   };
 
-  const onPhotoChange = (file?: File) => {
-    setError('');
-    if (!file) {
-      setPhoto(null);
-      setPhotoPreview('');
-      return;
-    }
-    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
-      setError('Choose a JPG, PNG, or WebP image to attach.');
-      return;
-    }
-    if (file.size > 1024 * 1024) {
-      setError('Choose a photo smaller than 1 MB.');
-      return;
-    }
-    setPhoto(file);
-    setPhotoPreview(URL.createObjectURL(file));
+  const removeSelectedMedia = (mediaType: 'IMAGE' | 'VIDEO', entry: SelectedMedia) => {
+    URL.revokeObjectURL(entry.previewUrl);
+    if (mediaType === 'IMAGE') setPhotos((current) => current.filter((file) => file !== entry));
+    else setVideos((current) => current.filter((file) => file !== entry));
   };
 
-  const onVideoChange = (file?: File) => {
+  const addMediaFiles = (mediaType: 'IMAGE' | 'VIDEO', files: FileList | null) => {
     setError('');
-    if (!file) {
-      setVideo(null);
-      setVideoPreview('');
+    const selected = Array.from(files ?? []);
+    if (existingMedia.length + photos.length + videos.length + selected.length > 4) {
+      setError('A report can have up to four images and videos combined.');
       return;
     }
-    if (!['video/mp4', 'video/webm'].includes(file.type)) {
-      setError('Choose an MP4 or WebM video to attach.');
+    const maxBytes = mediaType === 'IMAGE' ? maxImageBytes : maxVideoBytes;
+    const allowedMimeTypes = mediaType === 'IMAGE'
+      ? ['image/jpeg', 'image/png', 'image/webp']
+      : ['video/mp4', 'video/webm'];
+    const invalid = selected.find((file) => !allowedMimeTypes.includes(file.type) || file.size > maxBytes);
+    if (invalid) {
+      setError(mediaType === 'IMAGE'
+        ? `Choose JPG, PNG, or WebP images no larger than ${Math.round(maxBytes / (1024 * 1024))} MB each.`
+        : `Choose MP4 or WebM videos no larger than ${Math.round(maxBytes / (1024 * 1024))} MB each.`);
       return;
     }
-    if (file.size > 5 * 1024 * 1024) {
-      setError('Choose a video smaller than 5 MB.');
-      return;
-    }
-    setVideo(file);
-    setVideoPreview(URL.createObjectURL(file));
+    const additions = selected.map((file) => ({ file, previewUrl: URL.createObjectURL(file) }));
+    if (mediaType === 'IMAGE') setPhotos((current) => [...current, ...additions]);
+    else setVideos((current) => [...current, ...additions]);
   };
 
   const submitReport = async (event: FormEvent<HTMLFormElement>) => {
@@ -137,24 +142,22 @@ export const ReportItemPage = () => {
     setError('');
     setIsSubmitting(true);
     try {
-      const media: Array<{ type: 'IMAGE' | 'VIDEO'; dataUrl: string; fileName: string }> = [];
-      if (photo) media.push({ type: 'IMAGE', dataUrl: await readMediaAsDataUrl(photo), fileName: photo.name });
-      if (video) media.push({ type: 'VIDEO', dataUrl: await readMediaAsDataUrl(video), fileName: video.name });
       const editId = searchParams.get('edit');
+      const body = new FormData();
+      body.append('type', type);
+      body.append('title', title.trim());
+      body.append('category', category);
+      body.append('location', location.trim());
+      body.append('occurredAt', date);
+      body.append('description', description.trim());
+      body.append('privateDetails', privateDetails.trim());
+      body.append('contactEmail', contact.trim());
+      if (type === 'Found') body.append('custodyLocation', custodyLocation.trim());
+      if (editId) body.append('retainedMediaIds', JSON.stringify(existingMedia.map((entry) => entry.id)));
+      [...photos, ...videos].forEach(({ file }) => body.append('media', file, file.name));
       await apiRequest(editId ? `/items/${editId}` : '/items', {
         method: editId ? 'PATCH' : 'POST',
-        body: JSON.stringify({
-          type,
-          title: title.trim(),
-          category,
-          location: location.trim(),
-          occurredAt: date,
-          description: description.trim(),
-          privateDetails: privateDetails.trim(),
-          contactEmail: contact.trim(),
-          custodyLocation: type === 'Found' ? custodyLocation.trim() : undefined,
-          media,
-        }),
+        body,
       });
       setSuccess(true);
     } catch (reason) {
@@ -212,17 +215,33 @@ export const ReportItemPage = () => {
             <aside className="report-aside">
               <section className="report-photo">
                 <h2>Add a photo</h2><p>Optional. A clear photo can help make all the difference.</p>
-                {photoPreview ? <img className="report-photo__preview" src={photoPreview} alt="Selected item preview" /> : <div className="report-photo__empty" aria-hidden="true">⌑</div>}
-                <label className="community-button community-button--secondary report-photo__picker">＋ Add a photo<input type="file" accept="image/*" onChange={(event) => onPhotoChange(event.currentTarget.files?.[0])} /></label>
-                {photo && <button type="button" className="report-photo__remove" onClick={() => onPhotoChange()}>Remove {photo.name}</button>}
-                <small>JPG, PNG, or WebP · Up to 1 MB</small>
+                {existingMedia.filter((entry) => entry.type === 'IMAGE').map((entry) => (
+                  <div className="report-photo__existing" key={entry.id}>
+                    <img className="report-photo__preview" src={resolveApiUrl(entry.url)} alt={entry.fileName || 'Existing report photo'} />
+                    <button type="button" className="report-photo__remove" onClick={() => setExistingMedia((current) => current.filter((media) => media.id !== entry.id))}>
+                      Remove {entry.fileName || 'existing photo'}
+                    </button>
+                  </div>
+                ))}
+                {photos.map((entry) => <div className="report-photo__existing" key={entry.previewUrl}><img className="report-photo__preview" src={entry.previewUrl} alt={entry.file.name} /><button type="button" className="report-photo__remove" onClick={() => removeSelectedMedia('IMAGE', entry)}>Remove {entry.file.name}</button></div>)}
+                {!photos.length && !existingMedia.some((entry) => entry.type === 'IMAGE') && <div className="report-photo__empty" aria-hidden="true">⌑</div>}
+                <label className="community-button community-button--secondary report-photo__picker">＋ Add photos<input type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={(event) => { addMediaFiles('IMAGE', event.currentTarget.files); event.currentTarget.value = ''; }} /></label>
+                <small>JPG, PNG, or WebP · Up to {Math.round(maxImageBytes / (1024 * 1024))} MB each</small>
               </section>
               <section className="report-photo">
-                <h2>Add a video</h2><p>Optional. Add one short MP4 or WebM clip.</p>
-                {videoPreview ? <video className="report-photo__preview" src={videoPreview} controls /> : <div className="report-photo__empty" aria-hidden="true">▶</div>}
-                <label className="community-button community-button--secondary report-photo__picker">＋ Add a video<input type="file" accept="video/mp4,video/webm" onChange={(event) => onVideoChange(event.currentTarget.files?.[0])} /></label>
-                {video && <button type="button" className="report-photo__remove" onClick={() => onVideoChange()}>Remove {video.name}</button>}
-                <small>MP4 or WebM · Up to 5 MB</small>
+                <h2>Add videos</h2><p>Optional. Add short MP4 or WebM clips.</p>
+                {existingMedia.filter((entry) => entry.type === 'VIDEO').map((entry) => (
+                  <div className="report-photo__existing" key={entry.id}>
+                    <video className="report-photo__preview" src={resolveApiUrl(entry.url)} controls />
+                    <button type="button" className="report-photo__remove" onClick={() => setExistingMedia((current) => current.filter((media) => media.id !== entry.id))}>
+                      Remove {entry.fileName || 'existing video'}
+                    </button>
+                  </div>
+                ))}
+                {videos.map((entry) => <div className="report-photo__existing" key={entry.previewUrl}><video className="report-photo__preview" src={entry.previewUrl} controls /><button type="button" className="report-photo__remove" onClick={() => removeSelectedMedia('VIDEO', entry)}>Remove {entry.file.name}</button></div>)}
+                {!videos.length && !existingMedia.some((entry) => entry.type === 'VIDEO') && <div className="report-photo__empty" aria-hidden="true">▶</div>}
+                <label className="community-button community-button--secondary report-photo__picker">＋ Add videos<input type="file" accept="video/mp4,video/webm" multiple onChange={(event) => { addMediaFiles('VIDEO', event.currentTarget.files); event.currentTarget.value = ''; }} /></label>
+                <small>MP4 or WebM · Up to {Math.round(maxVideoBytes / (1024 * 1024))} MB each</small>
               </section>
               <section className="report-guidance"><h2>A good report goes a long way.</h2><strong>Be specific</strong><p>Mention the color, brand, and any visible features.</p><strong>Keep a detail just for you</strong><p>Save a unique mark or the contents to help prove ownership.</p><strong>Stay safe</strong><p>Meet in a public place and never send money to recover an item.</p></section>
               <section className="report-guidance report-guidance--plain"><h2>What happens next?</h2><p>An administrator reviews your report before it appears in the lost &amp; found listings. Private identifying details and contact information are never shown publicly.</p></section>
@@ -389,6 +408,14 @@ type MyClaimsResponse = {
     itemTitle: string;
     status: 'PENDING' | 'VERIFIED' | 'REJECTED';
     submittedAt: string;
+    handover: { code: string; storageLocation: string | null } | null;
+    handoverCompleted: boolean;
+    documents: Array<{
+      id: string;
+      documentType: 'COR' | 'CLASS_SCHEDULE';
+      fileName: string;
+      url: string;
+    }>;
   }>;
   foundLostItems: Array<{
     id: string;
@@ -396,6 +423,7 @@ type MyClaimsResponse = {
     status: 'FOUND' | 'RETURNED';
     foundItemTitle: string | null;
     resolutionLocation: string | null;
+    handover: { code: string; storageLocation: string | null } | null;
     updatedAt: string;
   }>;
 };
@@ -437,8 +465,12 @@ export const MyClaimsPage = () => {
                 {history.claims.some((claim) => claim.status === 'VERIFIED')
                   ? history.claims.filter((claim) => claim.status === 'VERIFIED').map((claim) => (
                     <article className="claim-card" key={claim.id}>
-                      <div><span className="claim-status">Ownership approved</span><h3>{claim.itemTitle}</h3><p>Approved {new Date(claim.submittedAt).toLocaleDateString()}</p></div>
-                      <p>Your ownership claim was approved. Contact the poster or campus office to arrange collection; approval alone does not confirm a handover.</p>
+                      <div><span className="claim-status">{claim.handoverCompleted ? 'Handed over' : 'Ownership approved'}</span><h3>{claim.itemTitle}</h3><p>Approved {new Date(claim.submittedAt).toLocaleDateString()}</p></div>
+                      {claim.handover
+                        ? <p>Collect this item at {claim.handover.storageLocation || 'the campus vault'}. Present handover code <strong>{claim.handover.code}</strong> to campus staff. Do not share the code with anyone else.</p>
+                        : claim.handoverCompleted
+                          ? <p>The physical handover has been recorded.</p>
+                          : <p>Your ownership claim was approved. Contact the poster or campus office to arrange collection; approval alone does not confirm a handover.</p>}
                     </article>
                   ))
                   : <p>No approved ownership claims yet.</p>}
@@ -449,7 +481,9 @@ export const MyClaimsPage = () => {
                   ? history.foundLostItems.map((item) => (
                     <article className="claim-card" key={item.id}>
                       <div><span className="claim-status">{item.status === 'RETURNED' ? 'Returned to you' : 'Found — ready to claim'}</span><h3>{item.title}</h3><p>Updated {new Date(item.updatedAt).toLocaleDateString()}</p></div>
-                      <p>{item.foundItemTitle ? `Matched found-item report: ${item.foundItemTitle}. ` : ''}{item.resolutionLocation ? `Collection location: ${item.resolutionLocation}.` : 'Please contact campus staff to arrange collection.'}</p>
+                      {item.handover
+                        ? <p>{item.foundItemTitle ? `Matched found-item report: ${item.foundItemTitle}. ` : ''}Collect at {item.handover.storageLocation || item.resolutionLocation || 'the campus vault'}. Present handover code <strong>{item.handover.code}</strong> to campus staff. Do not share the code with anyone else.</p>
+                        : <p>{item.foundItemTitle ? `Matched found-item report: ${item.foundItemTitle}. ` : ''}{item.resolutionLocation ? `Collection location: ${item.resolutionLocation}.` : 'Please contact campus staff to arrange collection.'}</p>}
                     </article>
                   ))
                   : <p>Lost reports confirmed as found will appear here.</p>}
@@ -461,6 +495,11 @@ export const MyClaimsPage = () => {
                     <article className="claim-card" key={claim.id}>
                       <div><span className="claim-status">{claim.status === 'REJECTED' ? 'Rejected' : 'Pending review'}</span><h3>{claim.itemTitle}</h3><p>Submitted {new Date(claim.submittedAt).toLocaleDateString()}</p></div>
                       <p>{claim.status === 'PENDING' ? 'An administrator is reviewing your claim.' : 'Your claim was not approved. Contact campus support if you need more information.'}</p>
+                      {claim.documents.map((document) => (
+                        <a className="claim-document-link" href={resolveApiUrl(document.url)} key={document.id}>
+                          {document.documentType === 'COR' ? 'Certificate of Registration' : 'Class schedule'} · {document.fileName}
+                        </a>
+                      ))}
                     </article>
                   ))
                   : <p>No other claim requests.</p>}

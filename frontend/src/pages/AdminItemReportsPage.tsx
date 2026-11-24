@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { PublicFooter, PublicHeader } from '../components/PublicNavigation';
-import { apiRequest } from '../lib/apiClient';
+import { apiRequest, resolveApiUrl } from '../lib/apiClient';
 import './AdminDashboardPage.css';
 
 type ReviewStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
@@ -112,7 +112,8 @@ export const AdminItemReportsPage = () => {
     }
   };
 
-  const approvedFoundReports = reports.filter((report) => report.type === 'Found' && report.status === 'REPORTED');
+  const approvedFoundReports = reports.filter((report) =>
+    report.type === 'Found' && ['REPORTED', 'IN_VAULT'].includes(report.status));
 
   return (
     <div className="admin-page">
@@ -130,6 +131,8 @@ export const AdminItemReportsPage = () => {
           <Link className="admin-view-link" to="/admin-dashboard">Claim review</Link>
           <Link className="admin-view-link admin-view-link--active" to="/admin-dashboard/reports">Item report moderation</Link>
           <Link className="admin-view-link" to="/admin-dashboard/matches">Lost-item matches</Link>
+          <Link className="admin-view-link" to="/admin-dashboard/conversations">Conversation safety</Link>
+          <Link className="admin-view-link" to="/admin-dashboard/vault">Vault &amp; handover</Link>
         </nav>
         <section className="admin-summary" aria-label="Report counts">
           {reviewFilters.map((entry) => <div className="admin-summary__card" key={entry.value}><span>{entry.label}</span><strong>{counts[entry.value]}</strong></div>)}
@@ -166,7 +169,7 @@ export const AdminItemReportsPage = () => {
                       <p className="admin-private-copy">{report.description}</p>
                       <h4>Private identifying details</h4>
                       <p className="admin-private-copy">{report.privateDetails || 'No private details were supplied.'}</p>
-                      {report.imageUrl && <div className="admin-evidence"><a href={report.imageUrl} target="_blank" rel="noreferrer"><img src={report.imageUrl} alt="Reported item" /><span>Item photo</span></a></div>}
+                      {report.imageUrl && <div className="admin-evidence"><a href={resolveApiUrl(report.imageUrl)} target="_blank" rel="noreferrer"><img src={resolveApiUrl(report.imageUrl)} alt="Reported item" /><span>Item photo</span></a></div>}
                     </section>
                     <section>
                       <h4>Reporter</h4>
@@ -209,7 +212,7 @@ export const AdminItemReportsPage = () => {
                   {report.type === 'Lost' && report.reviewStatus === 'APPROVED' && report.lostItemStatus === 'FOUND' && (
                     <footer className="admin-claim__actions">
                       <p>Found {report.matchedFoundItemTitle ? `and linked to “${report.matchedFoundItemTitle}”` : ''}. Collection: {report.resolutionLocation || 'not recorded'}.</p>
-                      <div><button type="button" className="admin-approve" disabled={busyReportId === report.id} onClick={() => void resolveLostReport(report, 'mark-returned')}>{busyReportId === report.id ? 'Saving…' : 'Mark returned to owner'}</button></div>
+                      <Link className="admin-approve" to="/admin-dashboard/vault">Record physical handover in the vault</Link>
                     </footer>
                   )}
                   {report.type === 'Lost' && report.reviewStatus === 'APPROVED' && report.lostItemStatus === 'RETURNED' && (

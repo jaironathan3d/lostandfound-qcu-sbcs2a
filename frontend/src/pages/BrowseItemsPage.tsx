@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { PublicFooter, PublicHeader } from '../components/PublicNavigation';
 import { useAuth } from '../lib/AuthContext';
-import { apiRequest } from '../lib/apiClient';
+import { apiRequest, resolveApiUrl } from '../lib/apiClient';
 import { readImageAsDataUrl } from '../lib/readImageAsDataUrl';
 import { getSavedItems, saveSavedItems, type ItemListing } from '../lib/itemData';
 import './BrowseItemsPage.css';
@@ -21,6 +21,9 @@ type ApiItem = {
   lostItemStatus?: 'OPEN' | 'MATCH_PENDING' | 'FOUND' | 'RETURNED';
 };
 
+const maxClaimDocumentBytes = Number(import.meta.env.VITE_CLAIM_DOCUMENT_MAX_BYTES || 10 * 1024 * 1024);
+const allowedClaimDocumentTypes = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
+
 const toDisplayItem = (item: ApiItem): ItemListing => ({
   id: item.id,
   title: item.title,
@@ -33,7 +36,7 @@ const toDisplayItem = (item: ApiItem): ItemListing => ({
   icon: item.category === 'Keys' ? '🔑' : item.category === 'Electronics' ? '🎧' : item.category === 'Accessories' ? '👓' : item.category === 'Bags & wallets' ? '🎒' : '📦',
   color: item.type === 'Found' ? 'mint' : 'sage',
   reporter: 'QCU community member',
-  imageUrl: item.imageUrl,
+  imageUrl: resolveApiUrl(item.imageUrl),
   mediaType: item.mediaType,
   lostItemStatus: item.lostItemStatus,
 });
@@ -255,6 +258,8 @@ const ItemDetails = ({ item, foundItems, userName, isAuthenticated, onClose }: {
   const [claimAnswer, setClaimAnswer] = useState('');
   const [claimEvidence, setClaimEvidence] = useState('');
   const [proofImage, setProofImage] = useState<File | null>(null);
+  const [corDocument, setCorDocument] = useState<File | null>(null);
+  const [scheduleDocument, setScheduleDocument] = useState<File | null>(null);
   const [matchOpen, setMatchOpen] = useState(false);
   const [matchDetails, setMatchDetails] = useState('');
   const [matchedFoundItemId, setMatchedFoundItemId] = useState('');
@@ -277,19 +282,23 @@ const ItemDetails = ({ item, foundItems, userName, isAuthenticated, onClose }: {
     setIsSubmittingClaim(true);
     try {
       const proofImageDataUrl = proofImage ? await readImageAsDataUrl(proofImage) : undefined;
+      const body = new FormData();
+      body.append('itemId', item.id);
+      body.append('hiddenDetailAnswer', claimAnswer.trim());
+      body.append('lastSeen', claimEvidence.trim());
+      if (proofImageDataUrl) body.append('proofImageDataUrl', proofImageDataUrl);
+      if (corDocument) body.append('corDocument', corDocument, corDocument.name);
+      if (scheduleDocument) body.append('scheduleDocument', scheduleDocument, scheduleDocument.name);
       await apiRequest('/claims', {
         method: 'POST',
-        body: JSON.stringify({
-          itemId: item.id,
-          hiddenDetailAnswer: claimAnswer.trim(),
-          lastSeen: claimEvidence.trim(),
-          proofImageDataUrl,
-        }),
+        body,
       });
       setClaimOpen(false);
       setClaimAnswer('');
       setClaimEvidence('');
       setProofImage(null);
+      setCorDocument(null);
+      setScheduleDocument(null);
       setFeedback('Your claim was submitted for administrator review.');
     } catch (reason) {
       setFeedback(reason instanceof Error ? reason.message : 'The claim could not be submitted.');
@@ -315,6 +324,29 @@ const ItemDetails = ({ item, foundItems, userName, isAuthenticated, onClose }: {
       return;
     }
     setProofImage(file);
+  };
+
+  const selectClaimDocument = (
+    documentType: 'COR' | 'CLASS_SCHEDULE',
+    file?: File,
+  ) => {
+    setFeedback('');
+    const setFile = documentType === 'COR' ? setCorDocument : setScheduleDocument;
+    if (!file) {
+      setFile(null);
+      return;
+    }
+    if (!allowedClaimDocumentTypes.includes(file.type)) {
+      setFile(null);
+      setFeedback('Choose a PDF, JPG, PNG, or WebP supporting document.');
+      return;
+    }
+    if (file.size > maxClaimDocumentBytes) {
+      setFile(null);
+      setFeedback(`Choose a supporting document no larger than ${Math.round(maxClaimDocumentBytes / (1024 * 1024))} MiB.`);
+      return;
+    }
+    setFile(file);
   };
 
   const submitMatchSuggestion = async (event: FormEvent<HTMLFormElement>) => {
@@ -421,6 +453,11 @@ const ItemDetails = ({ item, foundItems, userName, isAuthenticated, onClose }: {
             <label>When and where did you last have it?<input required value={claimEvidence} onChange={(event) => setClaimEvidence(event.target.value)} placeholder="Approximate date and campus location" /></label>
             <label>Additional evidence image (optional)<input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => selectProofImage(event.currentTarget.files?.[0])} /></label>
             {proofImage && <p>{proofImage.name}</p>}
+            <label>Certificate of Registration (optional)<input type="file" accept="application/pdf,image/jpeg,image/png,image/webp" onChange={(event) => selectClaimDocument('COR', event.currentTarget.files?.[0])} /></label>
+            {corDocument && <p>{corDocument.name}</p>}
+            <label>Class schedule (optional)<input type="file" accept="application/pdf,image/jpeg,image/png,image/webp" onChange={(event) => selectClaimDocument('CLASS_SCHEDULE', event.currentTarget.files?.[0])} /></label>
+            {scheduleDocument && <p>{scheduleDocument.name}</p>}
+            <p>Supporting documents are private, visible only to you and authorized administrators, and deleted after the claim decision. PDF, JPG, PNG, or WebP · Up to {Math.round(maxClaimDocumentBytes / (1024 * 1024))} MiB each.</p>
             <p>Claims are reviewed by an administrator. Approval verifies the claim but does not confirm that the item has been physically handed over.</p>
             <button type="submit" className="demo-button" disabled={isSubmittingClaim}>{isSubmittingClaim ? 'Submitting…' : 'Submit claim for review'}</button>
           </form>

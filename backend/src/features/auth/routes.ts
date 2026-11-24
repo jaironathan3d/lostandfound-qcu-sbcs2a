@@ -1,10 +1,9 @@
 import { Router } from 'express';
-import { UserRole, Prisma } from '@prisma/client';
+import { UserRole, Prisma, prisma } from '../../lib/prisma';
 import bcrypt from 'bcryptjs';
 import jwt, { type JwtPayload } from 'jsonwebtoken';
 import { createHash, randomBytes } from 'node:crypto';
 import { env } from '../../config/env';
-import { prisma } from '../../lib/prisma';
 
 export const authRouter = Router();
 

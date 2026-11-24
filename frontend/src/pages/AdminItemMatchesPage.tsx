@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { PublicFooter, PublicHeader } from '../components/PublicNavigation';
-import { apiRequest } from '../lib/apiClient';
+import { apiRequest, resolveApiUrl } from '../lib/apiClient';
 import './AdminDashboardPage.css';
 
 type MatchStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
@@ -115,6 +115,8 @@ export const AdminItemMatchesPage = () => {
           <Link className="admin-view-link" to="/admin-dashboard">Claim review</Link>
           <Link className="admin-view-link" to="/admin-dashboard/reports">Item report moderation</Link>
           <Link className="admin-view-link admin-view-link--active" to="/admin-dashboard/matches">Lost-item matches</Link>
+          <Link className="admin-view-link" to="/admin-dashboard/conversations">Conversation safety</Link>
+          <Link className="admin-view-link" to="/admin-dashboard/vault">Vault &amp; handover</Link>
         </nav>
         <section className="admin-summary" aria-label="Match suggestion counts">
           {filters.map((entry) => <div className="admin-summary__card" key={entry.value}><span>{entry.label}</span><strong>{counts[entry.value]}</strong></div>)}
@@ -170,8 +172,8 @@ export const AdminItemMatchesPage = () => {
                   </div>
                   {(match.lostItem.imageUrl || match.foundItem?.imageUrl) && (
                     <div className="admin-evidence">
-                      {match.lostItem.imageUrl && <a href={match.lostItem.imageUrl} target="_blank" rel="noreferrer"><img src={match.lostItem.imageUrl} alt="Lost item" /><span>Lost item photo</span></a>}
-                      {match.foundItem?.imageUrl && <a href={match.foundItem.imageUrl} target="_blank" rel="noreferrer"><img src={match.foundItem.imageUrl} alt="Found item" /><span>Found item photo</span></a>}
+                      {match.lostItem.imageUrl && <a href={resolveApiUrl(match.lostItem.imageUrl)} target="_blank" rel="noreferrer"><img src={resolveApiUrl(match.lostItem.imageUrl)} alt="Lost item" /><span>Lost item photo</span></a>}
+                      {match.foundItem?.imageUrl && <a href={resolveApiUrl(match.foundItem.imageUrl)} target="_blank" rel="noreferrer"><img src={resolveApiUrl(match.foundItem.imageUrl)} alt="Found item" /><span>Found item photo</span></a>}
                     </div>
                   )}
                   {match.status === 'PENDING' && (

@@ -24,15 +24,15 @@ All test accounts use password: `QcuTest!2026`
 
 The primary fictional student is `26-0001`, named `Test Student 1`, in `BSCS`, `1st Year`.
 
-## Remove test data
+## Pilot data safety
 
 No automatic production reset or test-data deletion command is provided.
 
-Before pilot testing:
+Before any pilot:
 
-1. Back up the authorized pilot database.
-2. Verify that no `*.test` accounts or legacy `TEST-*`/`2026-*` student numbers are present.
-3. Remove unapproved test data from a disposable database using an administrator review process or direct database cleanup approved by the project adviser.
-4. Seed only the approved pilot records.
+1. Follow the authorization, backup, and isolated-restore gates in [pilot-readiness.md](pilot-readiness.md).
+2. Verify that fictional `*.test` accounts and legacy `TEST-*`/`2026-*` student numbers are not present in the pilot dataset.
+3. Remove unapproved test data only through an approved administrator review and cleanup process on the intended database.
+4. Do not run this repository's fictional seed command against a pilot database.
 
 Do not use real QCU student information without authorization.

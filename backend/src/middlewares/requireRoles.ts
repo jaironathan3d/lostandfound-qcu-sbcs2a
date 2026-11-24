@@ -1,6 +1,5 @@
-import { UserRole } from '@prisma/client';
 import type { RequestHandler } from 'express';
-import { prisma } from '../lib/prisma';
+import { prisma, UserRole } from '../lib/prisma';
 
 export const requireRoles = (...allowedRoles: UserRole[]): RequestHandler => async (req, res, next) => {
   if (!req.authUserId) {

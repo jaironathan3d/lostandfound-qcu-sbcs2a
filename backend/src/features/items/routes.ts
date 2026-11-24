@@ -1,7 +1,19 @@
 import { Router } from 'express';
-import { ItemMediaType, ItemReviewStatus, ItemStatus, LostItemStatus, Prisma, ReportType } from '@prisma/client';
-import { prisma } from '../../lib/prisma';
+import { ItemMediaType, ItemReviewStatus, ItemStatus, LostItemStatus, Prisma, ReportType, prisma } from '../../lib/prisma';
+import jwt, { type JwtPayload } from 'jsonwebtoken';
 import { requireAuth } from '../../middlewares/requireAuth';
+import { env } from '../../config/env';
+import { streamFileHandle } from '../../lib/streamFile';
+import {
+  getItemMediaContentType,
+  getItemMediaAccessPath,
+  getUploadedFiles,
+  openItemMediaFile,
+  receiveItemMedia,
+  removeItemMediaFile,
+  removeStoredItemMedia,
+  validateAndStoreItemMedia,
+} from '../../lib/itemMedia';
 
 export const itemsRouter = Router();
 
@@ -11,8 +23,15 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const isText = (value: unknown, minLength: number, maxLength: number): value is string =>
   typeof value === 'string' && value.trim().length >= minLength && value.trim().length <= maxLength;
 
+const isValidDateFilter = (value: string): boolean => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+};
+
 const imageDataUrlPattern = /^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/;
 const videoDataUrlPattern = /^data:video\/(?:mp4|webm);base64,[A-Za-z0-9+/]+={0,2}$/;
+const isStoredMedia = (imageUrl: string): boolean => imageUrl.startsWith('storage:');
 
 const getValidatedMedia = (body: Record<string, unknown>): Array<{ dataUrl: string; mediaType: ItemMediaType; fileName: string | null }> | null => {
   const media = body.media;
@@ -50,6 +69,72 @@ itemsRouter.get('/categories', async (_req, res) => {
   res.json(categories.map((category) => category.name));
 });
 
+itemsRouter.get('/:itemId/media/:mediaId', async (req, res, next) => {
+  const { itemId, mediaId } = req.params;
+  if (typeof itemId !== 'string' || typeof mediaId !== 'string') {
+    res.status(404).end();
+    return;
+  }
+  const media = await prisma.itemImage.findFirst({
+    where: { id: mediaId, itemId },
+    include: { item: { select: { reporterId: true, reviewStatus: true } } },
+  });
+  if (!media || !isStoredMedia(media.imageUrl)) {
+    res.status(404).end();
+    return;
+  }
+  if (media.item.reviewStatus !== ItemReviewStatus.APPROVED) {
+    const access = typeof req.query.access === 'string' ? req.query.access : '';
+    let payload: JwtPayload;
+    try {
+      const verified = jwt.verify(access, env.JWT_SECRET);
+      if (
+        typeof verified === 'string'
+        || verified.purpose !== 'item-media'
+        || verified.itemId !== itemId
+        || verified.mediaId !== mediaId
+        || typeof verified.sub !== 'string'
+      ) {
+        res.status(404).end();
+        return;
+      }
+      payload = verified;
+    } catch {
+      res.status(404).end();
+      return;
+    }
+    const user = await prisma.user.findUnique({
+      where: { id: payload.sub },
+      select: { id: true, role: true },
+    });
+    if (
+      !user
+      || (user.id !== media.item.reporterId && user.role !== 'ADMIN' && user.role !== 'SUPER_ADMIN')
+    ) {
+      res.status(404).end();
+      return;
+    }
+  }
+  const file = await openItemMediaFile(media.imageUrl);
+  if (!file) {
+    res.status(404).end();
+    return;
+  }
+  let size: number;
+  try {
+    ({ size } = await file.stat());
+  } catch (error) {
+    await file.close();
+    throw error;
+  }
+  res.setHeader('Content-Type', getItemMediaContentType(media.imageUrl));
+  res.setHeader('Content-Length', size);
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
+  res.setHeader('Cache-Control', media.item.reviewStatus === ItemReviewStatus.APPROVED ? 'public, max-age=300' : 'private, no-store');
+  streamFileHandle(file, res, next);
+});
+
 itemsRouter.get('/', async (req, res) => {
   const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
   const type = typeof req.query.type === 'string' ? req.query.type : '';
@@ -58,27 +143,50 @@ itemsRouter.get('/', async (req, res) => {
   const dateFrom = typeof req.query.dateFrom === 'string' ? req.query.dateFrom : '';
   const dateTo = typeof req.query.dateTo === 'string' ? req.query.dateTo : '';
   const sort = req.query.sort === 'oldest' ? 'oldest' : 'newest';
-  const page = Math.max(1, Number.parseInt(typeof req.query.page === 'string' ? req.query.page : '1', 10) || 1);
-  const pageSize = Math.min(24, Math.max(1, Number.parseInt(typeof req.query.pageSize === 'string' ? req.query.pageSize : '12', 10) || 12));
+  const pageValue = req.query.page ?? '1';
+  const pageSizeValue = req.query.pageSize ?? '12';
+  if (
+    typeof pageValue !== 'string'
+    || !/^\d+$/.test(pageValue)
+    || !Number.isSafeInteger(Number(pageValue))
+    || typeof pageSizeValue !== 'string'
+    || !/^\d+$/.test(pageSizeValue)
+    || !Number.isSafeInteger(Number(pageSizeValue))
+  ) {
+    res.status(400).json({ message: 'Choose valid page and page-size values.' });
+    return;
+  }
+  const page = Math.max(1, Number(pageValue));
+  const pageSize = Math.min(24, Math.max(1, Number(pageSizeValue)));
+  if (!Number.isSafeInteger((page - 1) * pageSize)) {
+    res.status(400).json({ message: 'Choose a smaller page number.' });
+    return;
+  }
 
   if (type && type !== 'Lost' && type !== 'Found') {
     res.status(400).json({ message: 'Choose a valid item type.' });
     return;
   }
 
-  const validDateFrom = !dateFrom || /^\d{4}-\d{2}-\d{2}$/.test(dateFrom);
-  const validDateTo = !dateTo || /^\d{4}-\d{2}-\d{2}$/.test(dateTo);
-  if (!validDateFrom || !validDateTo) {
+  const validDateFrom = !dateFrom || isValidDateFilter(dateFrom);
+  const validDateTo = !dateTo || isValidDateFilter(dateTo);
+  if (!validDateFrom || !validDateTo || (dateFrom && dateTo && dateFrom > dateTo)) {
     res.status(400).json({ message: 'Choose valid date filters.' });
     return;
   }
 
   const where: Prisma.ItemWhereInput = {
-    status: ItemStatus.REPORTED,
     reviewStatus: ItemReviewStatus.APPROVED,
     OR: [
-      { reportType: ReportType.FOUND },
-      { reportType: ReportType.LOST, lostItemStatus: { in: [LostItemStatus.OPEN, LostItemStatus.MATCH_PENDING] } },
+      {
+        reportType: ReportType.FOUND,
+        status: { in: [ItemStatus.REPORTED, ItemStatus.IN_VAULT] },
+      },
+      {
+        reportType: ReportType.LOST,
+        status: ItemStatus.REPORTED,
+        lostItemStatus: { in: [LostItemStatus.OPEN, LostItemStatus.MATCH_PENDING] },
+      },
     ],
   };
   if (type) where.reportType = type === 'Found' ? ReportType.FOUND : ReportType.LOST;
@@ -106,9 +214,12 @@ itemsRouter.get('/', async (req, res) => {
       where,
       include: {
         category: { select: { name: true } },
-        images: { select: { imageUrl: true, mediaType: true, fileName: true } },
+        images: { select: { id: true, imageUrl: true, mediaType: true, fileName: true } },
       },
-      orderBy: { occurredAt: sort === 'oldest' ? 'asc' : 'desc' },
+      orderBy: [
+        { occurredAt: sort === 'oldest' ? 'asc' : 'desc' },
+        { id: 'asc' },
+      ],
       skip: (page - 1) * pageSize,
       take: pageSize,
     }),
@@ -126,10 +237,10 @@ itemsRouter.get('/', async (req, res) => {
     lostItemStatus: item.reportType === ReportType.LOST ? item.lostItemStatus : undefined,
     occurredAt: item.occurredAt.toISOString(),
     createdAt: item.createdAt.toISOString(),
-    imageUrl: item.images[0]?.imageUrl,
+    imageUrl: item.images[0] ? getItemMediaAccessPath(item.id, item.images[0], ItemReviewStatus.APPROVED) : undefined,
     mediaType: item.images[0]?.mediaType === ItemMediaType.VIDEO ? 'VIDEO' : 'IMAGE',
     media: item.images.map((entry) => ({
-      url: entry.imageUrl,
+      url: getItemMediaAccessPath(item.id, entry, ItemReviewStatus.APPROVED) ?? '',
       type: entry.mediaType === ItemMediaType.VIDEO ? 'VIDEO' : 'IMAGE',
       fileName: entry.fileName,
     })),
@@ -150,7 +261,7 @@ itemsRouter.get('/mine', requireAuth, async (req, res) => {
     where: { reporterId: req.authUserId },
     include: {
       category: { select: { name: true } },
-      images: { select: { imageUrl: true, mediaType: true, fileName: true } },
+      images: { select: { id: true, imageUrl: true, mediaType: true, fileName: true } },
       matchedFoundItem: { select: { title: true } },
     },
     orderBy: { createdAt: 'desc' },
@@ -170,12 +281,13 @@ itemsRouter.get('/mine', requireAuth, async (req, res) => {
     lostItemStatus: item.lostItemStatus,
     matchedFoundItemTitle: item.matchedFoundItem?.title,
     resolutionLocation: item.resolutionLocation,
-    imageUrl: item.images[0]?.imageUrl,
+    imageUrl: item.images[0] ? getItemMediaAccessPath(item.id, item.images[0], item.reviewStatus, req.authUserId) : undefined,
     contactEmail: item.contactEmail,
     custodyLocation: item.custodyLocation,
     mediaType: item.images[0]?.mediaType === ItemMediaType.VIDEO ? 'VIDEO' : 'IMAGE',
     media: item.images.map((entry) => ({
-      url: entry.imageUrl,
+      id: entry.id,
+      url: getItemMediaAccessPath(item.id, entry, item.reviewStatus, req.authUserId) ?? '',
       type: entry.mediaType === ItemMediaType.VIDEO ? 'VIDEO' : 'IMAGE',
       fileName: entry.fileName,
     })),
@@ -220,7 +332,7 @@ itemsRouter.post('/:itemId/matches', requireAuth, async (req, res) => {
       if (
         !foundItem
         || foundItem.reportType !== ReportType.FOUND
-        || foundItem.status !== ItemStatus.REPORTED
+        || (foundItem.status !== ItemStatus.REPORTED && foundItem.status !== ItemStatus.IN_VAULT)
         || foundItem.reviewStatus !== ItemReviewStatus.APPROVED
       ) return { kind: 'invalid-found-item' as const };
     }
@@ -268,7 +380,7 @@ itemsRouter.post('/:itemId/matches', requireAuth, async (req, res) => {
   });
 });
 
-itemsRouter.patch('/:itemId', requireAuth, async (req, res) => {
+itemsRouter.patch('/:itemId', requireAuth, receiveItemMedia, async (req, res) => {
   if (!req.authUserId) {
     res.status(401).json({ message: 'Please log in to continue.' });
     return;
@@ -281,7 +393,11 @@ itemsRouter.patch('/:itemId', requireAuth, async (req, res) => {
   const itemId = req.params.itemId;
   const existing = await prisma.item.findUnique({
     where: { id: itemId },
-    select: { reporterId: true, reviewStatus: true },
+    select: {
+      reporterId: true,
+      reviewStatus: true,
+      images: { select: { id: true, imageUrl: true } },
+    },
   });
   if (!existing || existing.reporterId !== req.authUserId) {
     res.status(404).json({ message: 'That report could not be found.' });
@@ -298,6 +414,30 @@ itemsRouter.patch('/:itemId', requireAuth, async (req, res) => {
   const validContact = contactEmail === undefined || contactEmail === '' || (typeof contactEmail === 'string' && contactEmail.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail));
   const validCustody = type !== 'Found' || isText(custodyLocation, 1, 120);
   const media = getValidatedMedia(req.body);
+  const uploadedFiles = getUploadedFiles(req);
+  let retainedMediaIdsValue = req.body.retainedMediaIds;
+  if (typeof retainedMediaIdsValue === 'string') {
+    try {
+      retainedMediaIdsValue = JSON.parse(retainedMediaIdsValue) as unknown;
+    } catch {
+      retainedMediaIdsValue = null;
+    }
+  }
+  const retainedMediaIds = Array.isArray(retainedMediaIdsValue)
+    && retainedMediaIdsValue.every((id): id is string => typeof id === 'string')
+    ? retainedMediaIdsValue
+    : undefined;
+  const validRetainedMediaIds = retainedMediaIdsValue === undefined
+    || (
+      retainedMediaIds !== undefined
+      && retainedMediaIds.length <= 4
+      && media !== null
+      && retainedMediaIds.length + media.length <= 4
+      && retainedMediaIds.every((id) => isText(id, 1, 100))
+      && new Set(retainedMediaIds).size === retainedMediaIds.length
+    );
+  const validMediaCount = media !== null
+    && (retainedMediaIds === undefined ? 0 : retainedMediaIds.length) + media.length + uploadedFiles.length <= 4;
 
   if (
     (type !== 'Lost' && type !== 'Found')
@@ -311,6 +451,8 @@ itemsRouter.patch('/:itemId', requireAuth, async (req, res) => {
     || !validContact
     || !validCustody
     || media === null
+    || !validRetainedMediaIds
+    || !validMediaCount
   ) {
     res.status(400).json({ message: 'Please check the item details or attached media and try again.' });
     return;
@@ -320,7 +462,23 @@ itemsRouter.patch('/:itemId', requireAuth, async (req, res) => {
     return;
   }
 
-  await prisma.$transaction(async (transaction) => {
+  const storedMedia = await validateAndStoreItemMedia(uploadedFiles);
+  if (!storedMedia) {
+    res.status(400).json({ message: 'One or more attachments are invalid or exceed the configured size limit.' });
+    return;
+  }
+  let retainedMediaIsValid: boolean;
+  try {
+    retainedMediaIsValid = await prisma.$transaction(async (transaction) => {
+    if (retainedMediaIds !== undefined) {
+      const currentMedia = await transaction.itemImage.findMany({
+        where: { itemId },
+        select: { id: true },
+      });
+      const currentIds = new Set(currentMedia.map((entry) => entry.id));
+      if (retainedMediaIds.some((id: string) => !currentIds.has(id))) return false;
+    }
+
     await transaction.item.update({
       where: { id: itemId },
       data: {
@@ -340,20 +498,65 @@ itemsRouter.patch('/:itemId', requireAuth, async (req, res) => {
         },
       },
     });
-    if (req.body.media !== undefined) {
-      await transaction.itemImage.deleteMany({ where: { itemId } });
-      if (media.length > 0) {
+    if (retainedMediaIds !== undefined) {
+      await transaction.itemImage.deleteMany({
+        where: { itemId, id: { notIn: retainedMediaIds } },
+      });
+      if (media.length + storedMedia.length > 0) {
         await transaction.itemImage.createMany({
-          data: media.map((entry) => ({
+          data: [
+            ...media.map((entry) => ({
             itemId,
             imageUrl: entry.dataUrl,
             mediaType: entry.mediaType,
             fileName: entry.fileName,
-          })),
+            })),
+            ...storedMedia.map((entry) => ({
+              itemId,
+              imageUrl: entry.imageUrl,
+              mediaType: entry.mediaType,
+              fileName: entry.fileName,
+            })),
+          ],
+        });
+      }
+    } else if (req.body.media !== undefined || storedMedia.length > 0) {
+      await transaction.itemImage.deleteMany({ where: { itemId } });
+      if (media.length + storedMedia.length > 0) {
+        await transaction.itemImage.createMany({
+          data: [
+            ...media.map((entry) => ({
+            itemId,
+            imageUrl: entry.dataUrl,
+            mediaType: entry.mediaType,
+            fileName: entry.fileName,
+            })),
+            ...storedMedia.map((entry) => ({
+              itemId,
+              imageUrl: entry.imageUrl,
+              mediaType: entry.mediaType,
+              fileName: entry.fileName,
+            })),
+          ],
         });
       }
     }
-  });
+      return true;
+    });
+  } catch (error) {
+    await removeStoredItemMedia(storedMedia);
+    throw error;
+  }
+  if (!retainedMediaIsValid) {
+    await removeStoredItemMedia(storedMedia);
+    res.status(400).json({ message: 'One or more selected attachments do not belong to this report.' });
+    return;
+  }
+  const mediaWasExplicitlyChanged = retainedMediaIds !== undefined || req.body.media !== undefined || storedMedia.length > 0;
+  const retainedIds = new Set(retainedMediaIds ?? []);
+  await Promise.all(existing.images
+    .filter((entry) => isStoredMedia(entry.imageUrl) && mediaWasExplicitlyChanged && !retainedIds.has(entry.id))
+    .map((entry) => removeItemMediaFile(entry.imageUrl)));
   res.json({ id: itemId, message: 'Report updated.' });
 });
 
@@ -370,7 +573,7 @@ itemsRouter.delete('/:itemId', requireAuth, async (req, res) => {
 
   const item = await prisma.item.findUnique({
     where: { id: itemId },
-    select: { reporterId: true, reviewStatus: true },
+    select: { reporterId: true, reviewStatus: true, images: { select: { imageUrl: true } } },
   });
   if (!item || item.reporterId !== req.authUserId) {
     res.status(404).json({ message: 'That report could not be found.' });
@@ -392,10 +595,11 @@ itemsRouter.delete('/:itemId', requireAuth, async (req, res) => {
     res.status(409).json({ message: 'This report is no longer awaiting review and could not be deleted.' });
     return;
   }
+  await Promise.all(item.images.map((image) => removeItemMediaFile(image.imageUrl)));
   res.status(204).end();
 });
 
-itemsRouter.post('/', requireAuth, async (req, res) => {
+itemsRouter.post('/', requireAuth, receiveItemMedia, async (req, res) => {
   if (!req.authUserId) {
     res.status(401).json({ message: 'Please log in to continue.' });
     return;
@@ -407,6 +611,7 @@ itemsRouter.post('/', requireAuth, async (req, res) => {
 
   const { type, title, category, location, occurredAt, description, privateDetails, contactEmail, custodyLocation } = req.body;
   const media = getValidatedMedia(req.body);
+  const uploadedFiles = getUploadedFiles(req);
   const date = typeof occurredAt === 'string' ? new Date(`${occurredAt}T12:00:00.000Z`) : null;
   const validDate = date !== null
     && !Number.isNaN(date.getTime())
@@ -428,6 +633,7 @@ itemsRouter.post('/', requireAuth, async (req, res) => {
     || !validContact
     || !validCustody
     || media === null
+    || media.length + uploadedFiles.length > 4
   ) {
     res.status(400).json({ message: 'Please check the item details and try again.' });
     return;
@@ -437,37 +643,61 @@ itemsRouter.post('/', requireAuth, async (req, res) => {
     return;
   }
 
+  const storedMedia = await validateAndStoreItemMedia(uploadedFiles);
+  if (!storedMedia) {
+    res.status(400).json({ message: 'One or more attachments are invalid or exceed the configured size limit.' });
+    return;
+  }
   const reportType = type === 'Found' ? ReportType.FOUND : ReportType.LOST;
-  const item = await prisma.item.create({
-    data: {
-      title: title.trim(),
-      description: description.trim(),
-      hiddenDetail: typeof privateDetails === 'string' ? privateDetails.trim() : '',
-      building: location.trim(),
-      reportType,
-      occurredAt: date,
-      contactEmail: typeof contactEmail === 'string' && contactEmail.trim() ? contactEmail.trim() : null,
-      custodyLocation: type === 'Found' && typeof custodyLocation === 'string' ? custodyLocation.trim() : null,
-      reporter: { connect: { id: req.authUserId } },
-      category: {
-        connectOrCreate: {
-          where: { name: category.trim() },
-          create: { name: category.trim() },
-        },
-      },
-      images: media && media.length > 0 ? {
-        create: media.map((entry) => ({
-          imageUrl: entry.dataUrl,
-          mediaType: entry.mediaType,
-          fileName: entry.fileName,
-        })),
-      } : undefined,
-    },
+  type CreatedItem = Prisma.ItemGetPayload<{
     include: {
-      category: { select: { name: true } },
-      images: { select: { imageUrl: true, mediaType: true, fileName: true } },
-    },
-  });
+      category: { select: { name: true } };
+      images: { select: { id: true; imageUrl: true; mediaType: true; fileName: true } };
+    };
+  }>;
+  let item: CreatedItem;
+  try {
+    item = await prisma.item.create({
+      data: {
+        title: title.trim(),
+        description: description.trim(),
+        hiddenDetail: typeof privateDetails === 'string' ? privateDetails.trim() : '',
+        building: location.trim(),
+        reportType,
+        occurredAt: date,
+        contactEmail: typeof contactEmail === 'string' && contactEmail.trim() ? contactEmail.trim() : null,
+        custodyLocation: type === 'Found' && typeof custodyLocation === 'string' ? custodyLocation.trim() : null,
+        reporter: { connect: { id: req.authUserId } },
+        category: {
+          connectOrCreate: {
+            where: { name: category.trim() },
+            create: { name: category.trim() },
+          },
+        },
+        images: media.length + storedMedia.length > 0 ? {
+          create: [
+            ...media.map((entry) => ({
+              imageUrl: entry.dataUrl,
+              mediaType: entry.mediaType,
+              fileName: entry.fileName,
+            })),
+            ...storedMedia.map((entry) => ({
+              imageUrl: entry.imageUrl,
+              mediaType: entry.mediaType,
+              fileName: entry.fileName,
+            })),
+          ],
+        } : undefined,
+      },
+      include: {
+        category: { select: { name: true } },
+        images: { select: { id: true, imageUrl: true, mediaType: true, fileName: true } },
+      },
+    });
+  } catch (error) {
+    await removeStoredItemMedia(storedMedia);
+    throw error;
+  }
 
   res.status(201).json({
     id: item.id,
@@ -479,6 +709,6 @@ itemsRouter.post('/', requireAuth, async (req, res) => {
     occurredAt: item.occurredAt.toISOString(),
     createdAt: item.createdAt.toISOString(),
     reviewStatus: item.reviewStatus,
-    imageUrl: item.images[0]?.imageUrl,
+    imageUrl: item.images[0] ? getItemMediaAccessPath(item.id, item.images[0], item.reviewStatus, req.authUserId) : undefined,
   });
 });

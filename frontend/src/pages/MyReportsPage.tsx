@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { PublicFooter, PublicHeader } from '../components/PublicNavigation';
-import { apiRequest } from '../lib/apiClient';
+import { apiRequest, resolveApiUrl } from '../lib/apiClient';
 import './MyReportsPage.css';
 
 type UserReport = {
@@ -82,8 +82,8 @@ export const MyReportsPage = () => {
               {reports.map((report) => (
                 <article className="my-report-card" key={report.id}>
                   {report.imageUrl && (report.mediaType === 'VIDEO'
-                    ? <video src={report.imageUrl} controls preload="metadata" />
-                    : <img src={report.imageUrl} alt="" />)}
+                    ? <video src={resolveApiUrl(report.imageUrl)} controls preload="metadata" />
+                    : <img src={resolveApiUrl(report.imageUrl)} alt="" />)}
                   <div className="my-report-card__content">
                     <div className="my-report-card__meta">
                       <span className={`my-report-status my-report-status--${report.reviewStatus.toLowerCase()}`}>{reviewLabel[report.reviewStatus]}</span>

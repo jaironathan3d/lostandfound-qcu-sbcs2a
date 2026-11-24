@@ -1,10 +1,12 @@
 generator client {
-  provider = "prisma-client-js"
+  provider   = "prisma-client"
+  output     = "../src/generated/prisma"
+  engineType = "client"
+  moduleFormat = "cjs"
 }
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 enum UserRole {
@@ -51,6 +53,24 @@ enum ClaimStatus {
   REJECTED
 }
 
+enum ClaimDocumentType {
+  COR
+  CLASS_SCHEDULE
+}
+
+enum ConversationReportReason {
+  HARASSMENT
+  SCAM_OR_FRAUD
+  SHARED_PERSONAL_INFORMATION
+  OTHER
+}
+
+enum ConversationReportStatus {
+  PENDING
+  REVIEWED
+  DISMISSED
+}
+
 enum ItemMediaType {
   IMAGE
   VIDEO
@@ -86,33 +106,35 @@ model User {
   privateMessages            PrivateMessage[]       @relation("PrivateMessageSender")
   proposedItemMatches        ItemMatchSuggestion[]  @relation("MatchProposer")
   reviewedItemMatches        ItemMatchSuggestion[]  @relation("MatchReviewer")
+  conversationReportsFiled  ConversationReport[]   @relation("ConversationReportReporter")
+  conversationReportsReviewed ConversationReport[] @relation("ConversationReportReviewer")
 }
 
 model PasswordResetToken {
-  id        String   @id @default(cuid())
-  tokenHash String   @unique
+  id        String    @id @default(cuid())
+  tokenHash String    @unique
   userId    String
   expiresAt DateTime
   usedAt    DateTime?
-  createdAt DateTime @default(now())
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, expiresAt])
 }
 
 model StudentRecord {
-  id            String   @id @default(cuid())
-  studentNumber String   @unique
-  fullName      String
-  course        String
-  yearLevel     String   @default("N/A")
-  universityEmail String? @unique
-  isActive      Boolean  @default(true)
-  classSchedule String?
-  userId        String?  @unique
-  user          User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id              String   @id @default(cuid())
+  studentNumber   String   @unique
+  fullName        String
+  course          String
+  yearLevel       String   @default("N/A")
+  universityEmail String?  @unique
+  isActive        Boolean  @default(true)
+  classSchedule   String?
+  userId          String?  @unique
+  user            User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 }
 
 model Category {
@@ -156,13 +178,13 @@ model Item {
 }
 
 model ItemImage {
-  id        String   @id @default(cuid())
+  id        String        @id @default(cuid())
   itemId    String
   imageUrl  String
   mediaType ItemMediaType @default(IMAGE)
   fileName  String?
-  createdAt DateTime @default(now())
-  item      Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  createdAt DateTime      @default(now())
+  item      Item          @relation(fields: [itemId], references: [id], onDelete: Cascade)
 }
 
 model Claim {
@@ -177,6 +199,20 @@ model Claim {
   item               Item              @relation(fields: [itemId], references: [id])
   claimer            User              @relation(fields: [claimerId], references: [id])
   proofImages        ClaimProofImage[]
+  documents          ClaimDocument[]
+}
+
+model ClaimDocument {
+  id           String            @id @default(cuid())
+  claimId      String
+  documentType ClaimDocumentType
+  storageKey   String
+  fileName     String
+  mimeType     String
+  createdAt    DateTime          @default(now())
+  claim        Claim             @relation(fields: [claimId], references: [id], onDelete: Cascade)
+
+  @@unique([claimId, documentType])
 }
 
 model ClaimProofImage {
@@ -251,8 +287,27 @@ model Conversation {
   poster        User             @relation("ConversationPoster", fields: [posterId], references: [id])
   participant   User             @relation("ConversationParticipant", fields: [participantId], references: [id])
   messages      PrivateMessage[]
+  reports       ConversationReport[]
 
   @@unique([itemId, participantId])
+}
+
+model ConversationReport {
+  id            String                    @id @default(cuid())
+  conversationId String
+  reporterId    String
+  reason        ConversationReportReason
+  details       String                    @default("")
+  status        ConversationReportStatus  @default(PENDING)
+  reviewedById  String?
+  reviewedAt    DateTime?
+  createdAt     DateTime                  @default(now())
+  conversation  Conversation              @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  reporter      User                      @relation("ConversationReportReporter", fields: [reporterId], references: [id])
+  reviewedBy    User?                     @relation("ConversationReportReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@unique([conversationId, reporterId])
+  @@index([status, createdAt])
 }
 
 model PrivateMessage {
@@ -290,6 +345,7 @@ model Notification {
   id        String    @id @default(cuid())
   userId    String
   message   String
+  href      String?
   readAt    DateTime?
   createdAt DateTime  @default(now())
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)

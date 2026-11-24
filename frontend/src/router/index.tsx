@@ -10,6 +10,8 @@ import { AdminItemReportsPage } from '../pages/AdminItemReportsPage';
 import { AdminItemMatchesPage } from '../pages/AdminItemMatchesPage';
 import { AdminStudentRecordsPage } from '../pages/AdminStudentRecordsPage';
 import { AdminCategoriesPage } from '../pages/AdminCategoriesPage';
+import { AdminConversationReportsPage } from '../pages/AdminConversationReportsPage';
+import { AdminVaultPage } from '../pages/AdminVaultPage';
 import { MessagesPage } from '../pages/MessagesPage';
 import { MyReportsPage } from '../pages/MyReportsPage';
 
@@ -83,6 +85,22 @@ export const appRouter = createBrowserRouter([
         element: (
           <RoleGuard allowedRoles={['admin', 'super_admin']}>
             <AdminItemMatchesPage />
+          </RoleGuard>
+        ),
+      },
+      {
+        path: 'admin-dashboard/conversations',
+        element: (
+          <RoleGuard allowedRoles={['admin', 'super_admin']}>
+            <AdminConversationReportsPage />
+          </RoleGuard>
+        ),
+      },
+      {
+        path: 'admin-dashboard/vault',
+        element: (
+          <RoleGuard allowedRoles={['admin', 'super_admin']}>
+            <AdminVaultPage />
           </RoleGuard>
         ),
       },

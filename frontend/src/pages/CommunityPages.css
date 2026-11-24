@@ -260,6 +260,14 @@
   object-fit: cover;
 }
 
+.report-photo__existing {
+  margin-bottom: 12px;
+}
+
+.report-photo__existing .report-photo__preview {
+  margin-bottom: 0;
+}
+
 .report-photo__picker {
   position: relative;
   width: 100%;
@@ -665,6 +673,12 @@
   max-width: 360px;
   margin: 0;
   color: #78857e;
+}
+
+.claim-document-link {
+  color: #2e694d;
+  font-size: 13px;
+  overflow-wrap: anywhere;
   font-size: 9px;
   line-height: 1.6;
 }
