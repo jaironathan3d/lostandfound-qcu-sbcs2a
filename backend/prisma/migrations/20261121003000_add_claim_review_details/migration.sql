@@ -1,0 +1,2 @@
+ALTER TABLE "Claim"
+ADD COLUMN "lastSeen" TEXT NOT NULL DEFAULT '';

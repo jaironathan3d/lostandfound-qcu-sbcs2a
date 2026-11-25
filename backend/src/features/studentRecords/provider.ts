@@ -1,8 +1,13 @@
+import { prisma } from '../../lib/prisma';
+
 export type StudentRecordData = {
   studentNumber: string;
   fullName: string;
   course: string;
-  classSchedule: string;
+  yearLevel: string;
+  universityEmail: string | null;
+  isActive: boolean;
+  classSchedule: string | null;
 };
 
 export interface StudentRecordsProvider {
@@ -11,9 +16,18 @@ export interface StudentRecordsProvider {
 
 export class MockStudentRecordsProvider implements StudentRecordsProvider {
   async findByStudentNumber(studentNumber: string): Promise<StudentRecordData | null> {
-    void studentNumber;
-
-    // TODO: Replace mock provider with university data source integration.
-    return null;
+    const record = await prisma.studentRecord.findUnique({
+      where: { studentNumber: studentNumber.trim() },
+    });
+    if (!record) return null;
+    return {
+      studentNumber: record.studentNumber,
+      fullName: record.fullName,
+      course: record.course,
+      yearLevel: record.yearLevel,
+      universityEmail: record.universityEmail,
+      isActive: record.isActive,
+      classSchedule: record.classSchedule,
+    };
   }
 }

@@ -7,3 +7,7 @@ dist
 frontend/dist
 backend/dist
 backend/generated
+backend/src/generated
+backend/storage
+frontend/test-results
+frontend/playwright-report

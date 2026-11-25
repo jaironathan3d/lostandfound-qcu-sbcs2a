@@ -1,0 +1,395 @@
+.admin-page {
+  min-height: 100vh;
+  background: #f5f7f4;
+  color: #23332d;
+}
+
+.admin-main {
+  width: min(1120px, calc(100% - 40px));
+  margin: 0 auto;
+  padding: 48px 0 80px;
+}
+
+.admin-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 28px;
+}
+
+.admin-eyebrow {
+  margin: 0 0 10px;
+  color: #668075;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .12em;
+}
+
+.admin-heading h1 {
+  margin: 0;
+  font-size: clamp(32px, 5vw, 48px);
+  letter-spacing: -.04em;
+}
+
+.admin-heading p:not(.admin-eyebrow) {
+  max-width: 700px;
+  margin: 12px 0 0;
+  color: #62726b;
+  line-height: 1.6;
+}
+
+.admin-heading > a {
+  color: #2e694d;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.admin-view-links {
+  display: flex;
+  gap: 10px;
+  margin: 20px 0;
+  border-bottom: 1px solid #dfe7e0;
+}
+
+.admin-view-link {
+  padding: 11px 14px;
+  color: #60736a;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.admin-view-link--active {
+  border-bottom: 2px solid #356b4d;
+  color: #2e694d;
+}
+
+.admin-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin: 28px 0 36px;
+}
+
+.admin-summary__card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 22px;
+  border: 1px solid #e1e9e3;
+  border-radius: 16px;
+  background: #fff;
+  color: #62726b;
+}
+
+.admin-summary__card strong {
+  color: #23332d;
+  font-size: 28px;
+}
+
+.admin-claims-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.admin-claims-heading h2 {
+  margin: 0;
+  font-size: 24px;
+}
+
+.admin-claims-heading button,
+.admin-tab {
+  border: 1px solid #dce5de;
+  border-radius: 10px;
+  background: #fff;
+  color: #385348;
+  cursor: pointer;
+  font: inherit;
+}
+
+.admin-claims-heading button {
+  padding: 9px 14px;
+}
+
+.admin-tabs {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  margin: 18px 0;
+  padding-bottom: 3px;
+}
+
+.admin-tab {
+  padding: 10px 14px;
+  white-space: nowrap;
+}
+
+.admin-tab span {
+  margin-left: 5px;
+  color: #708178;
+}
+
+.admin-tab--active {
+  border-color: #356b4d;
+  background: #356b4d;
+  color: #fff;
+}
+
+.admin-tab--active span {
+  color: #dcece1;
+}
+
+.admin-claim-list {
+  display: grid;
+  gap: 16px;
+}
+
+.admin-claim {
+  padding: 24px;
+  border: 1px solid #e0e8e1;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 8px 24px rgb(34 61 46 / 4%);
+}
+
+.admin-claim__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid #edf1ed;
+}
+
+.admin-claim__header h3 {
+  margin: 8px 0 5px;
+  font-size: 22px;
+}
+
+.admin-claim__header p,
+.admin-claim__header time {
+  margin: 0;
+  color: #718078;
+  font-size: 13px;
+}
+
+.admin-status {
+  display: inline-flex;
+  padding: 5px 9px;
+  border-radius: 20px;
+  background: #fff4d6;
+  color: #76591a;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.admin-status--verified {
+  background: #e4f3e8;
+  color: #28603d;
+}
+
+.admin-status--rejected {
+  background: #fbe8e6;
+  color: #923d35;
+}
+
+.admin-claim__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 28px;
+  padding: 20px 0;
+}
+
+.admin-claim__grid h4 {
+  margin: 14px 0 6px;
+  color: #60736a;
+  font-size: 12px;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.admin-claim__grid h4:first-child {
+  margin-top: 0;
+}
+
+.admin-claim__grid p {
+  margin: 0;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.admin-claim__grid a {
+  color: #2e694d;
+}
+
+.admin-private-copy {
+  white-space: pre-wrap;
+}
+
+.admin-evidence {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 16px 0;
+  border-top: 1px solid #edf1ed;
+}
+
+.admin-evidence a {
+  display: grid;
+  gap: 6px;
+  color: #456251;
+  font-size: 12px;
+  text-decoration: none;
+}
+
+.admin-evidence img {
+  width: 120px;
+  height: 100px;
+  border-radius: 10px;
+  background: #eff3ef;
+  object-fit: cover;
+}
+
+.admin-evidence .admin-claim-document {
+  min-width: 180px;
+  max-width: 260px;
+  padding: 12px;
+  border: 1px solid #dce5de;
+  border-radius: 10px;
+  background: #f7faf7;
+  overflow-wrap: anywhere;
+}
+
+.admin-claim-document strong {
+  color: #23392d;
+}
+
+.admin-claim__actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding-top: 18px;
+  border-top: 1px solid #edf1ed;
+}
+
+.admin-claim__actions p {
+  margin: 0;
+  color: #718078;
+  font-size: 13px;
+}
+
+.admin-claim__actions > label {
+  display: grid;
+  flex: 1;
+  gap: 6px;
+  color: #52675b;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.admin-claim__actions input,
+.admin-claim__actions select {
+  min-width: 220px;
+  padding: 10px 12px;
+  border: 1px solid #d5dfd7;
+  border-radius: 8px;
+  font: inherit;
+}
+
+.admin-claim__actions div {
+  display: flex;
+  gap: 9px;
+}
+
+.admin-claim__actions button {
+  padding: 10px 15px;
+  border: 0;
+  border-radius: 9px;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+}
+
+.admin-claim__actions button:disabled,
+.admin-claims-heading button:disabled {
+  cursor: wait;
+  opacity: .6;
+}
+
+.admin-reject {
+  background: #fbe8e6;
+  color: #923d35;
+}
+
+.admin-approve {
+  background: #356b4d;
+  color: #fff;
+}
+
+.admin-notice,
+.admin-error,
+.admin-empty {
+  padding: 16px;
+  border-radius: 12px;
+  background: #fff;
+  color: #5e7066;
+}
+
+.admin-notice {
+  color: #28603d;
+}
+
+.admin-error {
+  color: #923d35;
+}
+
+@media (max-width: 700px) {
+  .admin-main {
+    width: min(1120px, calc(100% - 28px));
+    padding-top: 32px;
+  }
+
+  .admin-heading,
+  .admin-claim__header,
+  .admin-claim__actions {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .admin-summary {
+    gap: 8px;
+  }
+
+  .admin-view-links {
+    max-width: 100%;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+  }
+
+  .admin-view-link {
+    flex: 0 0 auto;
+  }
+
+  .admin-summary__card {
+    align-items: flex-start;
+    flex-direction: column-reverse;
+    gap: 6px;
+    padding: 12px;
+    font-size: 12px;
+  }
+
+  .admin-claim {
+    padding: 18px;
+  }
+
+  .admin-claim__grid {
+    grid-template-columns: 1fr;
+    gap: 18px;
+  }
+
+  .admin-claim__actions {
+    gap: 12px;
+  }
+}

@@ -1,19 +1,18 @@
 generator client {
-  provider = "prisma-client-js"
+  provider   = "prisma-client"
+  output     = "../src/generated/prisma"
+  engineType = "client"
+  moduleFormat = "cjs"
 }
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 enum UserRole {
   STUDENT
-  PROFESSOR
-  STAFF
-  SECURITY_GUARD
   ADMIN
-  SUPERADMIN
+  SUPER_ADMIN
 }
 
 enum ItemStatus {
@@ -24,38 +23,118 @@ enum ItemStatus {
   RETURNED
 }
 
+enum ReportType {
+  LOST
+  FOUND
+}
+
+enum ItemReviewStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum LostItemStatus {
+  OPEN
+  MATCH_PENDING
+  FOUND
+  RETURNED
+}
+
+enum MatchSuggestionStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 enum ClaimStatus {
   PENDING
   VERIFIED
   REJECTED
 }
 
+enum ClaimDocumentType {
+  COR
+  CLASS_SCHEDULE
+}
+
+enum ConversationReportReason {
+  HARASSMENT
+  SCAM_OR_FRAUD
+  SHARED_PERSONAL_INFORMATION
+  OTHER
+}
+
+enum ConversationReportStatus {
+  PENDING
+  REVIEWED
+  DISMISSED
+}
+
+enum ItemMediaType {
+  IMAGE
+  VIDEO
+}
+
 model User {
-  id             String         @id @default(cuid())
-  email          String         @unique
-  passwordHash   String
-  fullName       String
-  role           UserRole
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
-  reportedItems  Item[]         @relation("ReporterItems")
-  claims         Claim[]
-  notifications  Notification[]
-  guardVaults    VaultEntry[]   @relation("VaultGuard")
-  handoversGiven Handover[]     @relation("HandoverGuard")
-  handoversTaken Handover[]     @relation("HandoverReceiver")
-  auditLogs      AuditLog[]
-  comments       Comment[]
+  id                         String                 @id @default(cuid())
+  email                      String                 @unique
+  passwordHash               String?
+  fullName                   String
+  role                       UserRole
+  termsAcceptedAt            DateTime?
+  termsVersion               String?
+  privacyAcceptedAt          DateTime?
+  privacyVersion             String?
+  studentRecord              StudentRecord?
+  passwordResetTokens        PasswordResetToken[]
+  createdAt                  DateTime               @default(now())
+  updatedAt                  DateTime               @updatedAt
+  reportedItems              Item[]                 @relation("ReporterItems")
+  claims                     Claim[]
+  notifications              Notification[]
+  guardVaults                VaultEntry[]           @relation("VaultGuard")
+  handoversGiven             Handover[]             @relation("HandoverGuard")
+  handoversTaken             Handover[]             @relation("HandoverReceiver")
+  auditLogs                  AuditLog[]
+  comments                   Comment[]
+  communityThreads           CommunityThread[]      @relation("CommunityThreadAuthor")
+  communityReplies           CommunityThreadReply[] @relation("CommunityReplyAuthor")
+  threadFollows              ThreadFollow[]
+  conversationsAsPoster      Conversation[]         @relation("ConversationPoster")
+  conversationsAsParticipant Conversation[]         @relation("ConversationParticipant")
+  privateMessages            PrivateMessage[]       @relation("PrivateMessageSender")
+  proposedItemMatches        ItemMatchSuggestion[]  @relation("MatchProposer")
+  reviewedItemMatches        ItemMatchSuggestion[]  @relation("MatchReviewer")
+  conversationReportsFiled  ConversationReport[]   @relation("ConversationReportReporter")
+  conversationReportsReviewed ConversationReport[] @relation("ConversationReportReviewer")
+}
+
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  tokenHash String    @unique
+  userId    String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
 }
 
 model StudentRecord {
-  id            String   @id @default(cuid())
-  studentNumber String   @unique
-  fullName      String
-  course        String
-  classSchedule String
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id              String   @id @default(cuid())
+  studentNumber   String   @unique
+  fullName        String
+  course          String
+  yearLevel       String   @default("N/A")
+  universityEmail String?  @unique
+  isActive        Boolean  @default(true)
+  classSchedule   String?
+  userId          String?  @unique
+  user            User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 }
 
 model Category {
@@ -67,30 +146,45 @@ model Category {
 }
 
 model Item {
-  id           String      @id @default(cuid())
-  title        String
-  description  String
-  hiddenDetail String
-  building     String
-  status       ItemStatus  @default(REPORTED)
-  reporterId   String
-  categoryId   String?
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
-  reporter     User        @relation("ReporterItems", fields: [reporterId], references: [id])
-  category     Category?   @relation(fields: [categoryId], references: [id])
-  images       ItemImage[]
-  claims       Claim[]
-  thread       Thread?
-  vaultEntry   VaultEntry?
+  id                   String                @id @default(cuid())
+  title                String
+  description          String
+  hiddenDetail         String
+  building             String
+  reportType           ReportType            @default(LOST)
+  occurredAt           DateTime              @default(now())
+  contactEmail         String?
+  custodyLocation      String?
+  status               ItemStatus            @default(REPORTED)
+  reviewStatus         ItemReviewStatus      @default(PENDING)
+  lostItemStatus       LostItemStatus        @default(OPEN)
+  matchedFoundItemId   String?               @unique
+  resolutionLocation   String?
+  reporterId           String
+  categoryId           String?
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  reporter             User                  @relation("ReporterItems", fields: [reporterId], references: [id])
+  category             Category?             @relation(fields: [categoryId], references: [id])
+  images               ItemImage[]
+  claims               Claim[]
+  thread               Thread?
+  vaultEntry           VaultEntry?
+  conversations        Conversation[]
+  matchedFoundItem     Item?                 @relation("LostToFoundMatch", fields: [matchedFoundItemId], references: [id])
+  matchedLostReport    Item?                 @relation("LostToFoundMatch")
+  matchesAsLostReport  ItemMatchSuggestion[] @relation("LostReportMatches")
+  matchesAsFoundReport ItemMatchSuggestion[] @relation("FoundReportMatches")
 }
 
 model ItemImage {
-  id        String   @id @default(cuid())
-  itemId     String
-  imageUrl   String
-  createdAt  DateTime @default(now())
-  item       Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  id        String        @id @default(cuid())
+  itemId    String
+  imageUrl  String
+  mediaType ItemMediaType @default(IMAGE)
+  fileName  String?
+  createdAt DateTime      @default(now())
+  item      Item          @relation(fields: [itemId], references: [id], onDelete: Cascade)
 }
 
 model Claim {
@@ -98,12 +192,27 @@ model Claim {
   itemId             String
   claimerId          String
   hiddenDetailAnswer String
+  lastSeen           String            @default("")
   status             ClaimStatus       @default(PENDING)
   createdAt          DateTime          @default(now())
   updatedAt          DateTime          @updatedAt
   item               Item              @relation(fields: [itemId], references: [id])
   claimer            User              @relation(fields: [claimerId], references: [id])
   proofImages        ClaimProofImage[]
+  documents          ClaimDocument[]
+}
+
+model ClaimDocument {
+  id           String            @id @default(cuid())
+  claimId      String
+  documentType ClaimDocumentType
+  storageKey   String
+  fileName     String
+  mimeType     String
+  createdAt    DateTime          @default(now())
+  claim        Claim             @relation(fields: [claimId], references: [id], onDelete: Cascade)
+
+  @@unique([claimId, documentType])
 }
 
 model ClaimProofImage {
@@ -114,13 +223,111 @@ model ClaimProofImage {
   claim     Claim    @relation(fields: [claimId], references: [id], onDelete: Cascade)
 }
 
+model ItemMatchSuggestion {
+  id                 String                @id @default(cuid())
+  lostItemId         String
+  foundItemId        String?
+  proposedById       String
+  note               String
+  status             MatchSuggestionStatus @default(PENDING)
+  reviewedById       String?
+  reviewedAt         DateTime?
+  resolutionLocation String?
+  createdAt          DateTime              @default(now())
+  lostItem           Item                  @relation("LostReportMatches", fields: [lostItemId], references: [id], onDelete: Cascade)
+  foundItem          Item?                 @relation("FoundReportMatches", fields: [foundItemId], references: [id])
+  proposedBy         User                  @relation("MatchProposer", fields: [proposedById], references: [id])
+  reviewedBy         User?                 @relation("MatchReviewer", fields: [reviewedById], references: [id])
+
+  @@index([lostItemId, createdAt])
+  @@index([status, createdAt])
+}
+
+model CommunityThread {
+  id        String                 @id @default(cuid())
+  title     String
+  body      String
+  authorId  String
+  createdAt DateTime               @default(now())
+  updatedAt DateTime               @updatedAt
+  author    User                   @relation("CommunityThreadAuthor", fields: [authorId], references: [id])
+  replies   CommunityThreadReply[]
+  followers ThreadFollow[]
+}
+
+model CommunityThreadReply {
+  id        String          @id @default(cuid())
+  threadId  String
+  authorId  String
+  content   String
+  createdAt DateTime        @default(now())
+  thread    CommunityThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  author    User            @relation("CommunityReplyAuthor", fields: [authorId], references: [id])
+}
+
+model ThreadFollow {
+  id        String          @id @default(cuid())
+  threadId  String
+  userId    String
+  createdAt DateTime        @default(now())
+  thread    CommunityThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  user      User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([threadId, userId])
+}
+
+model Conversation {
+  id            String           @id @default(cuid())
+  itemId        String
+  posterId      String
+  participantId String
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  item          Item             @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  poster        User             @relation("ConversationPoster", fields: [posterId], references: [id])
+  participant   User             @relation("ConversationParticipant", fields: [participantId], references: [id])
+  messages      PrivateMessage[]
+  reports       ConversationReport[]
+
+  @@unique([itemId, participantId])
+}
+
+model ConversationReport {
+  id            String                    @id @default(cuid())
+  conversationId String
+  reporterId    String
+  reason        ConversationReportReason
+  details       String                    @default("")
+  status        ConversationReportStatus  @default(PENDING)
+  reviewedById  String?
+  reviewedAt    DateTime?
+  createdAt     DateTime                  @default(now())
+  conversation  Conversation              @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  reporter      User                      @relation("ConversationReportReporter", fields: [reporterId], references: [id])
+  reviewedBy    User?                     @relation("ConversationReportReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@unique([conversationId, reporterId])
+  @@index([status, createdAt])
+}
+
+model PrivateMessage {
+  id             String       @id @default(cuid())
+  conversationId String
+  senderId       String
+  content        String
+  createdAt      DateTime     @default(now())
+  readAt         DateTime?
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender         User         @relation("PrivateMessageSender", fields: [senderId], references: [id])
+}
+
 model Thread {
   id        String    @id @default(cuid())
-  itemId     String    @unique
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
-  item       Item      @relation(fields: [itemId], references: [id], onDelete: Cascade)
-  comments   Comment[]
+  itemId    String    @unique
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  item      Item      @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  comments  Comment[]
 }
 
 model Comment {
@@ -135,39 +342,40 @@ model Comment {
 }
 
 model Notification {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   userId    String
   message   String
+  href      String?
   readAt    DateTime?
-  createdAt DateTime @default(now())
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model VaultEntry {
-  id            String    @id @default(cuid())
-  itemId         String    @unique
-  guardId        String
-  referenceCode  String    @unique
-  receivedAt     DateTime  @default(now())
-  releasedAt     DateTime?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-  item           Item      @relation(fields: [itemId], references: [id])
-  guard          User      @relation("VaultGuard", fields: [guardId], references: [id])
-  handovers      Handover[]
+  id            String     @id @default(cuid())
+  itemId        String     @unique
+  guardId       String
+  referenceCode String     @unique
+  receivedAt    DateTime   @default(now())
+  releasedAt    DateTime?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  item          Item       @relation(fields: [itemId], references: [id])
+  guard         User       @relation("VaultGuard", fields: [guardId], references: [id])
+  handovers     Handover[]
 }
 
 model Handover {
-  id           String    @id @default(cuid())
-  vaultEntryId String
-  guardId      String
-  releasedToId String
+  id            String     @id @default(cuid())
+  vaultEntryId  String
+  guardId       String
+  releasedToId  String
   referenceCode String
-  releasedAt   DateTime  @default(now())
-  createdAt    DateTime  @default(now())
-  vaultEntry   VaultEntry @relation(fields: [vaultEntryId], references: [id], onDelete: Cascade)
-  guard        User       @relation("HandoverGuard", fields: [guardId], references: [id])
-  releasedTo   User       @relation("HandoverReceiver", fields: [releasedToId], references: [id])
+  releasedAt    DateTime   @default(now())
+  createdAt     DateTime   @default(now())
+  vaultEntry    VaultEntry @relation(fields: [vaultEntryId], references: [id], onDelete: Cascade)
+  guard         User       @relation("HandoverGuard", fields: [guardId], references: [id])
+  releasedTo    User       @relation("HandoverReceiver", fields: [releasedToId], references: [id])
 }
 
 model AuditLog {

@@ -1,17 +1,19 @@
-export const LoginPage = () => <h1>Login (Placeholder)</h1>;
+import { Link } from 'react-router-dom';
+import { PublicFooter, PublicHeader } from '../components/PublicNavigation';
 
-export const RegisterPage = () => <h1>Register (Placeholder)</h1>;
+const DashboardNotice = ({ title, role }: { title: string; role: string }) => (
+  <div className="info-page">
+    <PublicHeader />
+    <main className="info-content">
+      <header className="info-intro">
+        <p className="info-eyebrow">{role.toUpperCase()} WORKSPACE</p>
+        <h1>{title}</h1>
+        <p>The role-based dashboard and server workflows are not part of this browser-only UI demo.</p>
+        <Link className="info-button" to="/items">Return to lost &amp; found</Link>
+      </header>
+    </main>
+    <PublicFooter />
+  </div>
+);
 
-export const BrowseItemsPage = () => <h1>Browse Items (Placeholder)</h1>;
-
-export const ReportItemPage = () => <h1>Report Item (Placeholder)</h1>;
-
-export const ItemDetailPage = () => <h1>Item Detail + Thread (Placeholder)</h1>;
-
-export const MyClaimsPage = () => <h1>My Claims (Placeholder)</h1>;
-
-export const GuardDashboardPage = () => <h1>Guard Dashboard (Placeholder)</h1>;
-
-export const AdminDashboardPage = () => <h1>Admin Dashboard (Placeholder)</h1>;
-
-export const HomePage = () => <h1>Lost and Found Starter Frontend</h1>;
+export const GuardDashboardPage = () => <DashboardNotice title="Item custody" role="Campus security" />;
